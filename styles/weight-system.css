@@ -1,0 +1,107 @@
+/* MMuton's Cyberpunk RED Weight System Styles */
+
+.weight-system-container {
+    margin: 8px 0;
+}
+
+.weight-display {
+    padding: 6px;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.1);
+    transition: all 0.3s ease;
+}
+
+.weight-display.overweight {
+    background: rgba(255, 0, 0, 0.2);
+    border-left: 3px solid red;
+    animation: warning-pulse 2s infinite;
+}
+
+@keyframes warning-pulse {
+    0%, 50%, 100% { opacity: 1; }
+    25%, 75% { opacity: 0.7; }
+}
+
+.weight-bar {
+    height: 8px;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 4px;
+    overflow: hidden;
+    margin: 4px 0;
+}
+
+.weight-fill {
+    height: 100%;
+    transition: all 0.3s ease;
+}
+
+/* Fields in item sheets */
+.weight-system-fields {
+    border: 1px solid #ccc;
+    padding: 6px;
+    margin: 6px 0;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.05);
+}
+
+.weight-system-fields label {
+    font-weight: bold;
+    margin: 0 5px 0 0;
+}
+
+.weight-system-fields input[type="number"] {
+    padding: 2px 4px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    font-size: 12px;
+}
+
+.weight-system-fields input[type="checkbox"] {
+    margin: 0 3px 0 0;
+}
+
+.container-settings {
+    margin-top: 8px;
+    padding: 6px;
+    border: 1px dashed #999;
+    border-radius: 3px;
+    background: rgba(0,0,0,0.05);
+}
+
+.container-settings label {
+    font-size: 12px;
+    font-weight: bold;
+}
+
+/* Container item styling in character sheets */
+.container-item {
+    border: 2px dashed #666;
+    border-radius: 6px;
+    padding: 8px;
+    margin: 4px 0;
+    background: rgba(100, 100, 100, 0.1);
+}
+
+.container-contents {
+    margin-left: 16px;
+    border-left: 2px solid #999;
+    padding-left: 8px;
+}
+
+.container-title {
+    font-weight: bold;
+    color: #444;
+    margin-bottom: 4px;
+}
+
+@media (max-width: 768px) {
+    .weight-system-fields {
+        padding: 6px;
+        margin: 6px 0;
+    }
+    
+    .container-settings {
+        margin-left: 10px;
+        padding-left: 8px;
+    }
+}

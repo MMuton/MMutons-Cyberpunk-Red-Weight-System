@@ -1,0 +1,23 @@
+<form class="weight-details-dialog">
+    <div class="dialog-content">
+        <h2>{{actor.name}} - Weight Details</h2>
+        
+        <div class="weight-summary">
+            <p><strong>Current Weight:</strong> {{current}} kg</p>
+            <p><strong>Maximum Weight:</strong> {{max}} kg</p>
+            <p><strong>Status:</strong> 
+                <span class="{{status}}">
+                    {{#if (eq status "overweight")}}
+                        ⚠️ OVERWEIGHT
+                    {{else}}
+                        ✅ Normal
+                    {{/if}}
+                </span>
+            </p>
+        </div>
+    </div>
+    
+    <footer class="dialog-buttons">
+        <button type="button" class="close-dialog">Close</button>
+    </footer>
+</form>
