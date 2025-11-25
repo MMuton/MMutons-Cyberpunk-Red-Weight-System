@@ -35,14 +35,37 @@ class WeightSystem {
             requiresReload: true
         });
 
+        game.settings.register(this.MODULE_ID, "capacityCalculation", {
+            name: "Capacity Calculation Method",
+            hint: "How to calculate maximum carry capacity",
+            scope: "world",
+            config: true,
+            type: String,
+            choices: {
+                "body": "BODY × Multiplier",
+                "custom": "Custom Fixed Value"
+            },
+            default: "body"
+        });
+
         game.settings.register(this.MODULE_ID, "baseWeightMultiplier", {
-            name: "Capacity Multiplier", 
-            hint: "Multiply BODY stat by this value for max capacity calculation",
+            name: "Capacity Multiplier (BODY × N)", 
+            hint: "Multiply BODY stat by this value (only used if calculation method is BODY × Multiplier)",
             scope: "world",
             config: true,
             type: Number,
             default: 3,
             range: { min: 1, max: 10, step: 0.5 }
+        });
+
+        game.settings.register(this.MODULE_ID, "customCapacity", {
+            name: "Custom Capacity Value",
+            hint: "Fixed carry capacity for all characters (only used if calculation method is Custom Fixed Value)",
+            scope: "world",
+            config: true,
+            type: Number,
+            default: 30,
+            range: { min: 5, max: 200, step: 5 }
         });
 
         game.settings.register(this.MODULE_ID, "enableContainers", {
@@ -805,10 +828,35 @@ class WeightSystem {
     }
 
     static calculateMaxWeight(actor) {
-        const body = actor.system.stats?.body?.value ?? 10;
-        const multiplier = game.settings.get(this.MODULE_ID, "baseWeightMultiplier");
+        const calculationMethod = game.settings.get(this.MODULE_ID, "capacityCalculation");
         
-        return body * multiplier;
+        let baseCapacity;
+        if (calculationMethod === "custom") {
+            baseCapacity = game.settings.get(this.MODULE_ID, "customCapacity");
+        } else {
+            const body = actor.system.stats?.body?.value ?? 10;
+            const multiplier = game.settings.get(this.MODULE_ID, "baseWeightMultiplier");
+            baseCapacity = body * multiplier;
+        }
+        
+        const capacityBonus = this.getCapacityBonus(actor);
+        
+        return baseCapacity + capacityBonus;
+    }
+
+    static getCapacityBonus(actor) {
+        let bonus = 0;
+        
+        for (const item of actor.items) {
+            if (item.type === "cyberware" && item.system.isInstalled === true) {
+                const capacityBonus = item.getFlag(this.MODULE_ID, "capacityBonus");
+                if (capacityBonus && capacityBonus.value > 0) {
+                    bonus += capacityBonus.value;
+                }
+            }
+        }
+        
+        return bonus;
     }
 
     static getItemWeight(item) {
@@ -888,6 +936,9 @@ class WeightSystem {
             { value: "weapon", label: "Weapon Container", reduction: 0.0 }
         ];
 
+        const capacityBonusData = item.getFlag(this.MODULE_ID, "capacityBonus") || { value: 0 };
+        const isCyberware = item.type === "cyberware";
+
         let weightFieldsHtml =
             '<div class="weight-system-fields" style="border: 1px solid #ccc; padding: 6px; margin: 6px 0; border-radius: 4px;">' +
                 '<div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">' +
@@ -900,7 +951,14 @@ class WeightSystem {
                         '<input type="checkbox" class="container-checkbox" ' + (isContainer ? 'checked' : '') + '>' +
                         '<label>Container</label>' +
                     '</div>' +
-                '</div>';
+                '</div>' +
+                (isCyberware ? 
+                    '<div style="display: flex; align-items: center; gap: 5px; margin-top: 6px; padding-top: 6px; border-top: 1px dashed #ccc;">' +
+                        '<label><strong>Capacity Bonus (when installed):</strong></label>' +
+                        '<input type="number" class="capacity-bonus-input" value="' + (capacityBonusData.value || 0) + '" step="1" min="0" style="width: 60px; padding: 2px;">' +
+                        '<span style="font-size: 11px; color: #666;">units added to max capacity</span>' +
+                    '</div>'
+                : '');
 
             if (isContainer) {
                 const currentContainerType = containerData.containerType || "multi";
@@ -1013,13 +1071,13 @@ class WeightSystem {
         const updateFlag = (key, value, options = {}) =>
             item.update({ [`flags.${this.MODULE_ID}.${key}`]: value }, options);
 
-        html.find('.weight-input').on('change', async (event) => {
-            const newWeight = parseFloat(event.target.value) || 0;
+        html.find('.capacity-bonus-input').on('change', async (event) => {
+            const newBonus = parseFloat(event.target.value) || 0;
             try {
-                await updateFlag("weight", { value: newWeight }, { render: false });
-                console.log(`Weight System: Set weight to ${newWeight} for ${item.name}`);
+                await updateFlag("capacityBonus", { value: newBonus }, { render: false });
+                console.log(`Weight System: Set capacity bonus to ${newBonus} for ${item.name}`);
             } catch (error) {
-                console.error("Weight System: Error setting weight:", error);
+                console.error("Weight System: Error setting capacity bonus:", error);
             }
         });
 
