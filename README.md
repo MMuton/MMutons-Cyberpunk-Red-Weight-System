@@ -33,22 +33,22 @@ Note: The values given below can be changed in the settings.
 * Container system: Either use a multi-purpose bag like a carryall and reduce the weight of everything inside by 50%,
 or use a specialized bag such as a MedTech Bag and reduce the weight of drug items to 0.
 
-<h1 align="center"> Dynamic tracking </h1>
+<h1 align="center"> Dynamic Tracking </h1>
 <p align="center">
   <img src = "https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExODZzaW55YnUzbjYzczlpbHB6b216N3dmOWkzc2lvaGpyZjB0eWZ6OSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/UkcgtDacfcMjtp2JNz/giphy.gif" width=700>
 </p>
 
-<h1 align="center"> Equipping reduces the weight </h1>
+<h1 align="center"> Equipping Reduces Item Weight </h1>
 <p align="center">
   <img src = "https://media.giphy.com/media/QW1Fn1AeRXHyqNLsl0/giphy.gif" width=700>
 </p>
 
-<h1 align="center"> Container system </h1>
+<h1 align="center"> Container System </h1>
 <p align="center">
   <img src="https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExcHR5cTJwM2FrZ2ZxeXk3ZmxtOHQ4MzU4NGR1N3F5eXluMm95anZuMyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/eGaBHD9J8YILMW7jIS/giphy.gif" width=700>
 </p>
 
-<h1 align="center"> Compendium Cloner with Added Weights </h1>
+<h1 align="center"> Compendium Cloner With Added Default Weights </h1>
 <p align="center">
   <img src="https://i.imgur.com/xhbu9VV.png" width=700>
 </p>
