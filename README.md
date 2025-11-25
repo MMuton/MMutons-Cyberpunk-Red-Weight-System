@@ -31,7 +31,7 @@ Note: The values given below can be changed in the settings.
 * Equipped weapons & armor weigh **1/3 of their original value**.
 * Upgrades & ammo do not weigh anything when inserted into an item.
 * Container system: Either use a multi-purpose bag like a carryall and reduce the weight of everything inside by 50%,
-or use a specialized bag such as a MedTech Bag and reduce the weight of drug items to 0.
+or use a specialized bag such as a MedTech Bag and reduce the weight of the stored drug items to 0.
 
 <h1 align="center"> Dynamic Tracking </h1>
 <p align="center">
