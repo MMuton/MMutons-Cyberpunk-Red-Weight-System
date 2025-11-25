@@ -1,6 +1,20 @@
 // MMuton's Cyberpunk RED Weight System
 // Main Module Script
-
+class WeightSystemCompendiumCloner extends FormApplication {
+    static get defaultOptions() {
+        return foundry.utils.mergeObject(super.defaultOptions, {
+            id: "weight-system-compendium-cloner",
+            title: "Clone Compendium with Weights",
+            template: "templates/generic.html",
+            width: 400
+        });
+    }
+    async _updateObject() {}
+    render() {
+        WeightSystem.openCompendiumClonerDialog();
+        return this;
+    }
+}
 class WeightSystem {
     static MODULE_ID = "mmutons-cyberpunk-red-weight-system";
     
@@ -53,6 +67,15 @@ class WeightSystem {
                 "1": "Full weight"
             },
             default: "0.33"
+        });
+		
+		game.settings.registerMenu(this.MODULE_ID, "compendiumClonerMenu", {
+            name: "Clone Compendium with Weights",
+            label: "Open Cloner",
+            hint: "Create a copy of a compendium with preset item weights applied.",
+            icon: "fas fa-copy",
+            type: WeightSystemCompendiumCloner,
+            restricted: true
         });
     }
 
@@ -910,27 +933,27 @@ class WeightSystem {
             
             if (currentContainerType === "multi") {
                 weightFieldsHtml += 
-                    '<div style="display: flex; gap: 15px; flex-wrap: wrap; align-items: center; margin-bottom: 6px;">' +
+                    '<div class="weight-reduction-row" style="display: flex; gap: 15px; flex-wrap: wrap; align-items: center; margin-bottom: 6px;">' +
                         '<div style="display: flex; align-items: center; gap: 5px;">' +
                             '<label><strong>Weight Reduction:</strong></label>' +
                             '<input type="number" class="weight-reduction-input" value="' + (containerData.weightReduction || 1.0) + '" step="0.1" min="0" max="1" style="width: 60px; padding: 2px;">' +
                             '<span style="font-size: 10px; color: #666;">(0.0=weightless, 1.0=full weight)</span>' +
                         '</div>' +
-                        '<div style="display: flex; align-items: center; gap: 5px;">' +
-                            '<label><strong>Capacity:</strong></label>' +
-                            '<input type="number" class="capacity-input" value="' + (containerData.capacity || 50) + '" step="1" min="0" style="width: 60px; padding: 2px;">' +
-                            '<span>kg</span>' +
-                        '</div>' +
+                    '</div>' +
+                    '<div class="capacity-row" style="display: flex; align-items: center; gap: 5px; margin-bottom: 6px;">' +
+                        '<label><strong>Capacity:</strong></label>' +
+                        '<input type="number" class="capacity-input" value="' + (containerData.capacity || 50) + '" step="1" min="0" style="width: 60px; padding: 2px;">' +
+                        '<span>kg</span>' +
                     '</div>';
             } else {
                 weightFieldsHtml += 
-                    '<div style="margin-bottom: 6px; padding: 4px; background: rgba(0,255,0,0.1); border-radius: 3px;">' +
+                    '<div class="specialized-info" style="margin-bottom: 6px; padding: 4px; background: rgba(0,255,0,0.1); border-radius: 3px;">' +
                         '<p style="margin: 0; font-size: 11px; color: #006600; font-weight: bold;">Specialized Container: Items inside are weightless!</p>' +
-                        '<div style="display: flex; align-items: center; gap: 5px; margin-top: 4px;">' +
-                            '<label><strong>Capacity:</strong></label>' +
-                            '<input type="number" class="capacity-input" value="' + (containerData.capacity || 50) + '" step="1" min="0" style="width: 60px; padding: 2px;">' +
-                            '<span>kg</span>' +
-                        '</div>' +
+                    '</div>' +
+                    '<div class="capacity-row" style="display: flex; align-items: center; gap: 5px; margin-bottom: 6px;">' +
+                        '<label><strong>Capacity:</strong></label>' +
+                        '<input type="number" class="capacity-input" value="' + (containerData.capacity || 50) + '" step="1" min="0" style="width: 60px; padding: 2px;">' +
+                        '<span>kg</span>' +
                     '</div>';
             }
             
@@ -945,7 +968,7 @@ class WeightSystem {
                                     '</option>'
                                 ).join('') +
                             '</select>' +
-                            '<span style="font-size: 14px; color: #666;"><i class="fas fa-' + containerIcon + '"></i></span>' +
+                            '<span class="container-icon-preview" style="font-size: 14px; color: #666;"><i class="fas fa-' + containerIcon + '"></i></span>' +
                         '</div>' +
                         '<p style="margin: 0 0 4px 0; font-size: 12px; font-weight: bold;">To use this container:</p>' +
                         '<p style="margin: 0; font-size: 11px; color: #666;">1. Put this container on a character<br>2. Right-click compatible items → "Put in Container"</p>' +
@@ -1000,28 +1023,6 @@ class WeightSystem {
             }
         });
 
-        const rerenderSheet = () => {
-            const activeTab = app._tabs?.[0]?.active ?? html.find('.sheet-tabs .item.active').data('tab');
-
-            const restoreTab = (renderedApp, renderedHtml) => {
-                if (renderedApp.id !== app.id) return;
-                Hooks.off("renderItemSheet", restoreTab);
-
-                if (!activeTab) return;
-
-                this.itemActiveTabs.set(item.id, activeTab);
-
-                const tabController = renderedApp._tabs?.[0];
-                if (tabController?.activate) {
-                    tabController.activate(activeTab);
-                } else {
-                    renderedHtml.find(`.item[data-tab="${activeTab}"] a, a.item[data-tab="${activeTab}"]`).trigger('click');
-                }
-            };
-
-            Hooks.on("renderItemSheet", restoreTab);
-            setTimeout(() => app.render(false), 100);
-        };
 
         html.find('.sheet-tabs .item').on('click', (event) => {
             const tab = $(event.currentTarget).data('tab');
@@ -1042,9 +1043,15 @@ class WeightSystem {
                         allowedTypes: ['ammo', 'armor', 'clothing', 'cyberdeck', 'cyberware', 'drug', 'gear', 'upgrade', 'program', 'weapon'],
                         icon: "box-open"
                     }, { render: false });
+                    
+                    if (html.find('.container-settings').length === 0) {
+                        setTimeout(() => app.render(false), 50);
+                    }
+                } else {
+                    html.find('.container-settings').slideUp(200, function() {
+                        $(this).remove();
+                    });
                 }
-
-                rerenderSheet();
             } catch (error) {
                 console.error("Weight System: Error setting container flag:", error);
             }
@@ -1069,7 +1076,43 @@ class WeightSystem {
                 await updateFlag("containerData", newData, { render: false });
                 console.log(`Weight System: Set container type to ${selectedType} for ${item.name}`);
 
-                rerenderSheet();
+                const settingsDiv = html.find('.container-settings');
+                const weightReductionRow = settingsDiv.find('.weight-reduction-row');
+                const specializedInfo = settingsDiv.find('.specialized-info');
+                
+                if (selectedType === "multi") {
+                    if (weightReductionRow.length) {
+                        weightReductionRow.show();
+                        html.find('.weight-reduction-input').val(newData.weightReduction);
+                    } else {
+                        settingsDiv.find('.capacity-row').before(
+                            '<div class="weight-reduction-row" style="display: flex; gap: 15px; flex-wrap: wrap; align-items: center; margin-bottom: 6px;">' +
+                                '<div style="display: flex; align-items: center; gap: 5px;">' +
+                                    '<label><strong>Weight Reduction:</strong></label>' +
+                                    '<input type="number" class="weight-reduction-input" value="' + (newData.weightReduction || 1.0) + '" step="0.1" min="0" max="1" style="width: 60px; padding: 2px;">' +
+                                    '<span style="font-size: 10px; color: #666;">(0.0=weightless, 1.0=full weight)</span>' +
+                                '</div>' +
+                            '</div>'
+                        );
+                        html.find('.weight-reduction-input').on('change', async (evt) => {
+                            const reduction = Math.max(0, Math.min(1, parseFloat(evt.target.value) || 1.0));
+                            const data = item.getFlag(this.MODULE_ID, "containerData") || {};
+                            await updateFlag("containerData", { ...data, weightReduction: reduction }, { render: false });
+                        });
+                    }
+                    specializedInfo.hide();
+                } else {
+                    weightReductionRow.hide();
+                    if (specializedInfo.length === 0) {
+                        settingsDiv.find('.capacity-row').before(
+                            '<div class="specialized-info" style="margin-bottom: 6px; padding: 4px; background: rgba(0,255,0,0.1); border-radius: 3px;">' +
+                                '<p style="margin: 0; font-size: 11px; color: #006600; font-weight: bold;">Specialized Container: Items inside are weightless!</p>' +
+                            '</div>'
+                        );
+                    } else {
+                        specializedInfo.show();
+                    }
+                }
             }
         });
 
@@ -1092,7 +1135,7 @@ class WeightSystem {
             const currentData = item.getFlag(this.MODULE_ID, "containerData") || {};
             await updateFlag("containerData", { ...currentData, icon: selectedIcon }, { render: false });
             console.log(`Weight System: Set container icon to ${selectedIcon} for ${item.name}`);
-            rerenderSheet();
+            html.find('.container-icon-preview i').attr('class', 'fas fa-' + selectedIcon);
         });
     }
 
@@ -1131,6 +1174,144 @@ class WeightSystem {
         }
         
         return false;
+    }
+
+    static exportWeightedItems() {
+        const items = game.items.filter(i => {
+            const w = i.getFlag(this.MODULE_ID, "weight");
+            return w && w.value > 0;
+        });
+        const data = {};
+        items.forEach(i => { data[i.name] = i.getFlag(this.MODULE_ID, "weight").value; });
+        console.log("=== WEIGHTED ITEMS EXPORT ===");
+        console.log(JSON.stringify(data, null, 2));
+        return data;
+    }
+
+    static async exportCompendiumWeights(packName) {
+        const pack = game.packs.get(packName);
+        if (!pack) {
+            console.error(`Pack "${packName}" not found. Available:`, game.packs.map(p => p.collection));
+            return;
+        }
+        const items = await pack.getDocuments();
+        const data = {};
+        items.forEach(i => {
+            const w = i.getFlag(this.MODULE_ID, "weight");
+            if (w?.value > 0) data[i.name] = w.value;
+        });
+        console.log(`=== EXPORT: ${packName} (${Object.keys(data).length} items) ===`);
+        console.log(JSON.stringify(data, null, 2));
+        return data;
+    }
+
+    static async loadDefaultWeights() {
+        try {
+            const resp = await fetch(`modules/mmutons-cyberpunk-red-weight-system/data/default-weights.json`);
+            if (!resp.ok) {
+                console.error("Weight System: Failed to fetch default-weights.json, status:", resp.status);
+                return {};
+            }
+            return await resp.json();
+        } catch (e) {
+            console.error("Weight System: Failed to load weights:", e);
+            return {};
+        }
+    }
+
+    static async cloneCompendiumWithWeights(sourcePackName, weights) {
+        const sourcePack = game.packs.get(sourcePackName);
+        if (!sourcePack) {
+            ui.notifications.error(`Compendium "${sourcePackName}" not found!`);
+            return;
+        }
+
+        const meta = sourcePack.metadata;
+        const newName = `${meta.name}-weighted`;
+        const newLabel = `${meta.label} (Weighted)`;
+
+        const existing = game.packs.get(`world.${newName}`);
+        if (existing) {
+            const confirm = await Dialog.confirm({
+                title: "Overwrite?",
+                content: `<p>"${newLabel}" exists. Delete and recreate?</p>`
+            });
+            if (!confirm) return;
+            await existing.deleteCompendium();
+        }
+
+        ui.notifications.info(`Creating "${newLabel}"...`);
+
+        const newPack = await CompendiumCollection.createCompendium({
+            name: newName,
+            label: newLabel,
+            type: meta.type,
+            system: meta.system
+        });
+
+        const sourceItems = await sourcePack.getDocuments();
+        let weightedCount = 0;
+
+        const itemsToCreate = sourceItems.map(src => {
+            const obj = src.toObject();
+            delete obj._id;
+
+            if (weights[src.name] !== undefined) {
+                obj.flags = obj.flags || {};
+                obj.flags[WeightSystem.MODULE_ID] = obj.flags[WeightSystem.MODULE_ID] || {};
+                obj.flags[WeightSystem.MODULE_ID].weight = { value: weights[src.name] };
+                weightedCount++;
+            }
+            return obj;
+        });
+
+        await Item.createDocuments(itemsToCreate, { pack: newPack.collection });
+
+        ui.notifications.info(`Done! ${weightedCount}/${sourceItems.length} items weighted.`);
+        console.log(`Weight System: Cloned ${sourcePackName} -> ${newPack.collection}`);
+    }
+
+    static async openCompendiumClonerDialog() {
+        const packs = game.packs.filter(p => p.metadata.type === "Item");
+        if (!packs.length) {
+            ui.notifications.warn("No item compendiums found!");
+            return;
+        }
+
+        const options = packs.map(p => `<option value="${p.collection}">${p.metadata.label}</option>`).join('');
+
+        new Dialog({
+            title: "Clone Compendium with Weights",
+            content: `
+                <form style="padding: 10px;">
+                    <div style="margin-bottom: 10px;">
+                        <label><strong>Select Compendium:</strong></label>
+                        <select name="pack" style="width: 100%; margin-top: 4px;">${options}</select>
+                    </div>
+                    <p style="font-size: 11px; color: #666;">
+                        Creates a copy with weights from:<br>
+                        <code>modules/${this.MODULE_ID}/data/default-weights.json</code>
+                    </p>
+                </form>
+            `,
+            buttons: {
+                clone: {
+                    icon: '<i class="fas fa-copy"></i>',
+                    label: "Clone",
+                    callback: async (html) => {
+                        const pack = html.find('[name="pack"]').val();
+                        const weights = await WeightSystem.loadDefaultWeights();
+                        if (!Object.keys(weights).length) {
+                            ui.notifications.error("No weights in default-weights.json!");
+                            return;
+                        }
+                        await WeightSystem.cloneCompendiumWithWeights(pack, weights);
+                    }
+                },
+                cancel: { icon: '<i class="fas fa-times"></i>', label: "Cancel" }
+            },
+            default: "clone"
+        }).render(true);
     }
 }
 
