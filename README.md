@@ -26,7 +26,8 @@ This module has been created to add some depth to looting and perhaps even to ba
 
 Note: The values given below can be changed in the settings.
 
-* Max capacity is determined by a character's **Body x 2.5**.
+* Max capacity is determined by a character's **Body x 2.5**, or a custom absolute number of your choosing.
+* Max capacity can be upgraded with cyberware.
 * The capacity bar shows at the top of the Gear tab and is calculated automatically.
 * Equipped weapons & armor weigh **1/3 of their original value**.
 * Upgrades & ammo do not weigh anything when inserted into an item.
@@ -53,7 +54,7 @@ or use a specialized bag such as a MedTech Bag and reduce the weight of the stor
   <img src="https://i.imgur.com/xhbu9VV.png" width=700>
   
 </p>
-<h1 align="center"> Increate Maximum Capacity With Cyberware </h1>
+<h1 align="center"> Increase Maximum Capacity With Cyberware </h1>
 <p align="center">
   <img src="https://i.imgur.com/G2803fX.png" width=700>
 </p>
@@ -65,8 +66,8 @@ or use a specialized bag such as a MedTech Bag and reduce the weight of the stor
   Fixed. It now only needs to be re-rendered once when being transformed into a container.
 * <s>Currently, you have to set the weight of every item manually. I am working on a system that automatically creates a clone of your compendium with pre-determined item weights.</s>
 
-  Fixed. You can now clone compendium in the module settings to have the item pre-weighed.
+  Fixed. You can now clone compendiums in the module settings to have the item pre-weighed.
 
 ## Disclaimer
 
-As someone very much new to programming, I have enlisted the help of AI during this project when I have struggled with the code.
+As someone who is very much new to programming, I have enlisted the help of AI during this project when I have struggled with the code.
