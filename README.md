@@ -48,6 +48,11 @@ or use a specialized bag such as a MedTech Bag and reduce the weight of drug ite
   <img src="https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExcHR5cTJwM2FrZ2ZxeXk3ZmxtOHQ4MzU4NGR1N3F5eXluMm95anZuMyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/eGaBHD9J8YILMW7jIS/giphy.gif" width=700>
 </p>
 
+<h1 align="center"> Compendium Cloner with Added Weights </h1>
+<p align="center">
+  <img src="https://i.imgur.com/xhbu9VV.png" width=700>
+</p>
+
 ## Known Issues
 
 * <s>The weight editing menu can stop rendering when editing a container type; you might have to re-open the container item during configuration. I am working on a fix.</s>
