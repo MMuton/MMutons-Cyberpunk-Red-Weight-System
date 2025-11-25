@@ -51,8 +51,10 @@ or use a specialized bag such as a MedTech Bag and reduce the weight of drug ite
 ## Known Issues
 
 * <s>The weight editing menu can stop rendering when editing a container type; you might have to re-open the container item during configuration. I am working on a fix.</s>
+
   Fixed. It now only needs to be re-rendered once when being transformed into a container.
 * <s>Currently, you have to set the weight of every item manually. I am working on a system that automatically creates a clone of your compendium with pre-determined item weights.</s>
+
   Fixed. You can now clone compendium in the module settings to have the item pre-weighed.
 
 ## Disclaimer
