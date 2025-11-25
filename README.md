@@ -51,6 +51,11 @@ or use a specialized bag such as a MedTech Bag and reduce the weight of the stor
 <h1 align="center"> Compendium Cloner With Added Default Weights </h1>
 <p align="center">
   <img src="https://i.imgur.com/xhbu9VV.png" width=700>
+  
+</p>
+<h1 align="center"> Increate Maximum Capacity With Cyberware </h1>
+<p align="center">
+  <img src="https://i.imgur.com/G2803fX.png" width=700>
 </p>
 
 ## Known Issues
