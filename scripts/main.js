@@ -1040,14 +1040,22 @@ class WeightSystem {
         weightFieldsHtml += '</div>';
 
         let inserted = false;
-        const possibleLocations = ['.item-properties', '.sheet-body', '.window-content', 'form'];
+        const possibleLocations = [
+            '.tab[data-tab="description"]',
+            '.item-properties',
+            '.editor-container',
+            '.sheet-body',
+            '.window-content form',
+            '.window-content',
+            'form'
+        ];
 
         html.find('.weight-system-fields').remove();
 
         for (const selector of possibleLocations) {
-            const location = html.find(selector).last();
+            const location = html.find(selector).first();
             if (location.length > 0) {
-                location.append(weightFieldsHtml);
+                location.prepend(weightFieldsHtml);
                 inserted = true;
                 break;
             }
@@ -1070,6 +1078,16 @@ class WeightSystem {
 
         const updateFlag = (key, value, options = {}) =>
             item.update({ [`flags.${this.MODULE_ID}.${key}`]: value }, options);
+
+        html.find('.weight-input').on('change', async (event) => {
+            const newWeight = parseFloat(event.target.value) || 0;
+            try {
+                await updateFlag("weight", { value: newWeight }, { render: false });
+                console.log(`Weight System: Set weight to ${newWeight} for ${item.name}`);
+            } catch (error) {
+                console.error("Weight System: Error setting weight:", error);
+            }
+        });
 
         html.find('.capacity-bonus-input').on('change', async (event) => {
             const newBonus = parseFloat(event.target.value) || 0;
