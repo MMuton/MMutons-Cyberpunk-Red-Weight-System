@@ -1,3 +1,6 @@
+<p align="center">
+  <img src = "https://i.imgur.com/t19wzfA.png" width=700>
+</p>
 <h1 align="center"> Cyberpunk RED: Weight System </h1> <br>
 <p align="center">
   A weight system module for Cyberpunk RED, made by MMuton.
