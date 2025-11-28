@@ -1366,7 +1366,7 @@ class WeightSystem {
                     </div>
                     <p style="font-size: 11px; color: #666;">
                         Creates a copy with weights from:<br>
-                        <code>modules/${this.MODULE_ID}/data/default-weights.json</code>
+                        <code>modules/mmutons-cyberpunk-red-weight-system/data/default-weights.json</code>
                     </p>
                 </form>
             `,
@@ -1396,3 +1396,4 @@ Hooks.once("init", () => {
 });
 
 window.WeightSystem = WeightSystem;
+
