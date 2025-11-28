@@ -4,6 +4,9 @@
   "description": "Adds weight limits and containers to Cyberpunk RED.",
   "author": "MMuton",
   "version": "1.1.0",
+  "url": "https://github.com/MMuton/MMutons-Cyberpunk-Red-Weight-System",
+  "manifest": "https://raw.githubusercontent.com/MMuton/MMutons-Cyberpunk-Red-Weight-System/main/module.json",
+  "download": "https://github.com/MMuton/MMutons-Cyberpunk-Red-Weight-System/archive/refs/heads/main.zip",
   "compatibility": {
     "minimum": "11",
     "verified": "12",
