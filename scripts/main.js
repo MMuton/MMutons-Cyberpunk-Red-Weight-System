@@ -31,7 +31,7 @@ class WeightSystem {
             scope: "world",
             config: true,
             type: Boolean,
-            default: false,
+            default: true,
             requiresReload: true
         });
 
@@ -99,6 +99,15 @@ class WeightSystem {
             icon: "fas fa-copy",
             type: WeightSystemCompendiumCloner,
             restricted: true
+        });
+
+        game.settings.register(this.MODULE_ID, "showSyncButton", {
+            name: "Show Weight Sync Button",
+            hint: "Display a button on character sheets to sync item weights from weighted compendiums and the Items Directory.",
+            scope: "world",
+            config: true,
+            type: Boolean,
+            default: false
         });
     }
 
@@ -401,50 +410,59 @@ class WeightSystem {
     }
 
     static async recalculateWeightsFromDirectory(actor) {
-        let updatedCount = 0;
-        let notFoundCount = 0;
-        const updatedItems = [];
+        const updatedItems = new Map();
+        let compendiumMatches = 0;
+        let directoryMatches = 0;
 
-        ui.notifications.info("Recalculating weights from Items Directory...");
+        ui.notifications.info("Syncing weights...");
 
-        // Get all items from the actor
-        for (const actorItem of actor.items) {
-            const currentWeight = actorItem.getFlag(this.MODULE_ID, "weight");
-            
-            // Find matching item in game.items by exact name match
-            const directoryItem = game.items.find(item => item.name === actorItem.name);
-            
-            if (directoryItem) {
-                const directoryWeight = directoryItem.getFlag(this.MODULE_ID, "weight");
-                
-                if (directoryWeight && directoryWeight.value > 0) {
-                    // Copy weight from directory item to actor item
-                    await actorItem.setFlag(this.MODULE_ID, "weight", directoryWeight);
-                    updatedCount++;
-                    updatedItems.push(`${actorItem.name}: ${directoryWeight.value} units`);
+        const weightedPacks = game.packs.filter(p => 
+            p.metadata.type === "Item" && p.metadata.label.includes("(Weighted)")
+        );
+
+        for (const pack of weightedPacks) {
+            const packItems = await pack.getDocuments();
+            for (const actorItem of actor.items) {
+                const matchingItem = packItems.find(i => i.name === actorItem.name);
+                if (matchingItem) {
+                    const weight = matchingItem.getFlag(this.MODULE_ID, "weight");
+                    if (weight && weight.value > 0) {
+                        updatedItems.set(actorItem.id, { item: actorItem, weight: weight.value, source: "compendium" });
+                        compendiumMatches++;
+                    }
                 }
-            } else {
-                notFoundCount++;
             }
         }
 
-        // Show results
-        if (updatedCount > 0) {
-            ui.notifications.info(`Updated ${updatedCount} item weights from directory.`);
-            console.log("Weight System: Updated items:", updatedItems);
-            
-            // Refresh the actor sheet display
+        for (const actorItem of actor.items) {
+            const directoryItem = game.items.find(item => item.name === actorItem.name);
+            if (directoryItem) {
+                const weight = directoryItem.getFlag(this.MODULE_ID, "weight");
+                if (weight && weight.value > 0) {
+                    updatedItems.set(actorItem.id, { item: actorItem, weight: weight.value, source: "directory" });
+                    directoryMatches++;
+                }
+            }
+        }
+
+        let appliedCount = 0;
+        for (const [id, data] of updatedItems) {
+            await data.item.setFlag(this.MODULE_ID, "weight", { value: data.weight });
+            appliedCount++;
+            console.log(`Weight System: ${data.item.name} = ${data.weight} (from ${data.source})`);
+        }
+
+        if (appliedCount > 0) {
+            ui.notifications.info(`Synced ${appliedCount} item weights.`);
             const sheet = actor.sheet;
             if (sheet && sheet.rendered) {
                 setTimeout(() => sheet.render(false), 100);
             }
         } else {
-            ui.notifications.warn("No items found in directory with matching names and weights.");
+            ui.notifications.warn("No matching items found in weighted compendiums or Items Directory.");
         }
 
-        if (notFoundCount > 0) {
-            console.log(`Weight System: ${notFoundCount} items not found in directory.`);
-        }
+        console.log(`Weight System: Sync complete. Compendium matches: ${compendiumMatches}, Directory matches: ${directoryMatches}, Total applied: ${appliedCount}`);
     }
 
     static async removeFromContainer(item) {
@@ -581,6 +599,7 @@ class WeightSystem {
         const weightHtml = `
             <div class="weight-system-container" style="margin: 8px 0; clear: both;">
                 <div class="weight-display ${weightData.status}" style="
+                    position: relative;
                     padding: 6px; 
                     border-radius: 4px; 
                     background: ${weightData.status === 'overweight' ? 'rgba(255, 0, 0, 0.2)' : 'rgba(0, 0, 0, 0.1)'};
@@ -607,9 +626,11 @@ class WeightSystem {
                         "></div>
                     </div>
                     ${weightData.status === 'overweight' ? 
-                        '<div style="color: red; font-size: 12px; font-weight: bold;">⚠️ OVERWEIGHT!</div>' : ''}
-                    ${/* containerInfo.length > 0 ? 
-                        '<div style="font-size: 11px; color: #666; margin-top: 4px;">📦 ' + containerInfo.length + ' containers reducing weight</div>' : '' */ ''}
+                        '<div style="color: red; font-size: 12px; font-weight: bold;">OVERWEIGHT!</div>' : ''}
+                    ${game.settings.get(this.MODULE_ID, "showSyncButton") ? 
+                        '<button type="button" class="weight-recalculate-btn" title="Sync weights from compendiums and Items Directory" style="position: absolute; top: 6px; left: 50%; transform: translateX(-50%); width: 20px; height: 20px; background: none; border: none; cursor: pointer; color: #fff; font-size: 12px; padding: 0; line-height: 1;">' +
+                            '<i class="fa-solid fa-rotate"></i>' +
+                        '</button>' : ''}
                 </div>
             </div>
         `;
@@ -1295,7 +1316,7 @@ class WeightSystem {
         }
     }
 
-    static async cloneCompendiumWithWeights(sourcePackName, weights) {
+    static async cloneCompendiumWithWeights(sourcePackName, weights, laxMatching = false) {
         const sourcePack = game.packs.get(sourcePackName);
         if (!sourcePack) {
             ui.notifications.error(`Compendium "${sourcePackName}" not found!`);
@@ -1318,12 +1339,26 @@ class WeightSystem {
 
         ui.notifications.info(`Creating "${newLabel}"...`);
 
+        const folderName = "Weighted Compendiums";
+        let folder = game.folders.find(f => f.name === folderName && f.type === "Compendium");
+        
+        if (!folder) {
+            folder = await Folder.create({
+                name: folderName,
+                type: "Compendium",
+                color: "#7a4988"
+            });
+            console.log(`Weight System: Created folder "${folderName}"`);
+        }
+
         const newPack = await CompendiumCollection.createCompendium({
             name: newName,
             label: newLabel,
             type: meta.type,
             system: meta.system
         });
+
+        await newPack.configure({ folder: folder.id });
 
         const sourceItems = await sourcePack.getDocuments();
         let weightedCount = 0;
@@ -1332,10 +1367,25 @@ class WeightSystem {
             const obj = src.toObject();
             delete obj._id;
 
+            let matchedWeight = null;
+
             if (weights[src.name] !== undefined) {
+                matchedWeight = weights[src.name];
+            } else if (laxMatching) {
+                const itemNameLower = src.name.toLowerCase();
+                for (const [key, value] of Object.entries(weights)) {
+                    if (itemNameLower.includes(key.toLowerCase())) {
+                        matchedWeight = value;
+                        console.log(`Weight System: Lax match "${src.name}" ← "${key}" (${value})`);
+                        break;
+                    }
+                }
+            }
+
+            if (matchedWeight !== null) {
                 obj.flags = obj.flags || {};
                 obj.flags[WeightSystem.MODULE_ID] = obj.flags[WeightSystem.MODULE_ID] || {};
-                obj.flags[WeightSystem.MODULE_ID].weight = { value: weights[src.name] };
+                obj.flags[WeightSystem.MODULE_ID].weight = { value: matchedWeight };
                 weightedCount++;
             }
             return obj;
@@ -1366,14 +1416,14 @@ class WeightSystem {
                     </div>
                     <p style="font-size: 11px; color: #666;">
                         Creates a copy with weights from:<br>
-                        <code>modules/mmutons-cyberpunk-red-weight-system/data/default-weights.json</code>
+                        <code>modules/${this.MODULE_ID}/data/default-weights.json</code>
                     </p>
                 </form>
             `,
             buttons: {
-                clone: {
+                lax: {
                     icon: '<i class="fas fa-copy"></i>',
-                    label: "Clone",
+                    label: "Lax Clone",
                     callback: async (html) => {
                         const pack = html.find('[name="pack"]').val();
                         const weights = await WeightSystem.loadDefaultWeights();
@@ -1381,12 +1431,28 @@ class WeightSystem {
                             ui.notifications.error("No weights in default-weights.json!");
                             return;
                         }
-                        await WeightSystem.cloneCompendiumWithWeights(pack, weights);
+                        await WeightSystem.cloneCompendiumWithWeights(pack, weights, true);
                     }
                 },
-                cancel: { icon: '<i class="fas fa-times"></i>', label: "Cancel" }
+                strict: {
+                    icon: '<i class="fas fa-copy"></i>',
+                    label: "Strict Clone",
+                    callback: async (html) => {
+                        const pack = html.find('[name="pack"]').val();
+                        const weights = await WeightSystem.loadDefaultWeights();
+                        if (!Object.keys(weights).length) {
+                            ui.notifications.error("No weights in default-weights.json!");
+                            return;
+                        }
+                        await WeightSystem.cloneCompendiumWithWeights(pack, weights, false);
+                    }
+                }
             },
-            default: "clone"
+            default: "strict",
+            render: (html) => {
+                html.find('button[data-button="lax"]').attr('title', 'Partial matching: "Viper" will also match "Militech Viper"');
+                html.find('button[data-button="strict"]').attr('title', 'Exact matching: Only items with identical names receive weights');
+            }
         }).render(true);
     }
 }
@@ -1396,4 +1462,3 @@ Hooks.once("init", () => {
 });
 
 window.WeightSystem = WeightSystem;
-
