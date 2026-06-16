@@ -8,7 +8,7 @@
     {
       "name": "example-items",
       "label": "Weight System Examples",
-      "path": "packs/example-items",
+      "path": "packs/weight-system-examples",
       "type": "Item",
       "system": "cyberpunk-red-core"
     }
