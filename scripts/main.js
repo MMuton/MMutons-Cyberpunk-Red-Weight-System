@@ -1,5 +1,4 @@
 // MMuton's Cyberpunk RED Weight System
-// Main Module Script
 class WeightSystemCompendiumCloner extends FormApplication {
     static get defaultOptions() {
         return foundry.utils.mergeObject(super.defaultOptions, {
@@ -109,6 +108,15 @@ class WeightSystem {
             type: Boolean,
             default: false
         });
+
+        game.settings.register(this.MODULE_ID, "includeUpgradeWeight", {
+            name: "Include Upgrade Weight in Weapons",
+            hint: "When enabled, weapon attachments (itemUpgrades) add their weight to the parent weapon's total.",
+            scope: "world",
+            config: true,
+            type: Boolean,
+            default: true
+        });
     }
 
     static registerHooks() {
@@ -165,20 +173,22 @@ class WeightSystem {
                             position: fixed; 
                             left: ${event.pageX}px; 
                             top: ${event.pageY}px; 
-                            background: white; 
-                            border: 1px solid #ccc; 
-                            border-radius: 4px;
-                            padding: 4px 0;
-                            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+                            background: var(--cpr-background-chat-card-block, #52606d); 
+                            border: 1px solid var(--cpr-background-chat-border, #999999); 
+                            padding: 0;
+                            box-shadow: 0 2px 8px rgba(0,0,0,0.4);
                             z-index: 10000;
-                            min-width: 150px;
+                            min-width: 180px;
+                            clip-path: polygon(0 0.5rem, 0 100%, 100% 100%, 100% 0, 0.5rem 0);
                         ">
                             ${menuItems.map(item => 
                                 `<div class="menu-item" data-action="${item.name}" style="
-                                    padding: 6px 12px; 
+                                    padding: 8px 12px; 
                                     cursor: pointer; 
-                                    border-bottom: 1px solid #eee;
+                                    border-bottom: 1px solid var(--cpr-background-chat-card-block-before, #3b3b3b);
                                     font-size: 13px;
+                                    color: var(--cpr-text-chat-normal, #eaeaea);
+                                    background: var(--cpr-background-chat-card-block-before, #3b3b3b);
                                 ">
                                     ${item.icon} ${item.name}
                                 </div>`
@@ -197,11 +207,10 @@ class WeightSystem {
                         $('.weight-system-context-menu').remove();
                     });
                     
-                    // Hover effects
                     $('.weight-system-context-menu .menu-item').on('mouseenter', function() {
-                        $(this).css('background', '#f0f0f0');
+                        $(this).css('background', 'var(--cpr-background-chat-card-block, #52606d)');
                     }).on('mouseleave', function() {
-                        $(this).css('background', 'white');
+                        $(this).css('background', 'var(--cpr-background-chat-card-block-before, #3b3b3b)');
                     });
                     
                     // Remove menu when clicking elsewhere
@@ -249,18 +258,17 @@ class WeightSystem {
             return;
         }
 
-        // Create button-based content
         const cancelButton = `
             <button class="container-button cancel-button" style="
                 width: 100%; 
                 padding: 10px; 
                 margin-bottom: 8px; 
-                background: #dc3545; 
-                color: white; 
+                background: var(--cpr-color-red, #b90202); 
+                color: var(--cpr-color-white, #eaeaea); 
                 border: none; 
-                border-radius: 4px; 
                 cursor: pointer;
                 font-size: 14px;
+                clip-path: polygon(0 0.5rem, 0 100%, 100% 100%, 100% 0, 0.5rem 0);
             " data-action="cancel">Cancel</button>
         `;
         
@@ -278,24 +286,24 @@ class WeightSystem {
                     width: 100%;
                     padding: 10px;
                     margin-bottom: 4px;
-                    background: #28a745;
-                    color: white;
+                    background: var(--cpr-background-chat-card-block, #52606d);
+                    color: var(--cpr-color-white, #eaeaea);
                     border: none;
-                    border-radius: 4px;
                     cursor: pointer;
                     font-size: 14px;
                     text-align: left;
                     display: flex;
                     align-items: center;
                     gap: 10px;
+                    clip-path: polygon(0 0.5rem, 0 100%, 100% 100%, 100% 0, 0.5rem 0);
                 " data-container-id="${container.id}">
                     <span style="font-size: 18px; width: 22px; text-align: center;">
-                        <i class="fas fa-${containerIcon}"></i>
+                        ${this.renderContainerIcon(containerIcon)}
                     </span>
                     <span style="flex: 1 1 auto;">
                         <div style="font-weight: bold;">${container.name}</div>
-                        <div style="font-size: 12px; opacity: 0.9;">
-                            ${typeLabel}${isWeightless ? ' - Weightless!' : ''} | ${currentWeight.toFixed(1)}/${capacity} units
+                        <div style="font-size: 12px; color: var(--cpr-color-light-grey, #9e9f9f);">
+                            ${typeLabel}${isWeightless ? ' - <span style="color: var(--cpr-text-chat-success, #609040);">Weightless!</span>' : ''} | ${currentWeight.toFixed(1)}/${capacity} units
                         </div>
                     </span>
                 </button>
@@ -303,11 +311,28 @@ class WeightSystem {
         }).join('');
 
         const dialogContent = `
-            <div style="padding: 10px;">
-                <h3 style="margin-top: 0;">Select Container for ${item.name}</h3>
-                <p style="margin-bottom: 15px; color: #666; font-size: 13px;">Moving <strong>${item.name}</strong> (${item.type}) into container...</p>
-                ${cancelButton}
-                ${containerButtons}
+            <div class="cpr-block" style="
+                background-color: var(--cpr-background-chat-card-block, #52606d);
+                position: relative;
+                display: flex;
+                flex-direction: column;
+                padding: 0.25rem;
+                clip-path: polygon(0 0.938rem, 0 100%, 100% 100%, 100% 0, 0.938rem 0);
+            ">
+                <div style="
+                    background-color: var(--cpr-background-chat-card-block-before, #3b3b3b);
+                    padding: 12px;
+                    clip-path: polygon(0 0.875rem, 0 100%, 100% 100%, 100% 0, 0.875rem 0);
+                ">
+                    <h3 style="margin: 0 0 8px 0; color: var(--cpr-color-white, #eaeaea); font-size: 16px;">
+                        Select Container for ${item.name}
+                    </h3>
+                    <p style="margin: 0 0 12px 0; color: var(--cpr-color-light-grey, #9e9f9f); font-size: 13px;">
+                        Moving <strong style="color: var(--cpr-color-white, #eaeaea);">${item.name}</strong> (${item.type}) into container...
+                    </p>
+                    ${cancelButton}
+                    ${containerButtons}
+                </div>
             </div>
         `;
 
@@ -316,14 +341,31 @@ class WeightSystem {
             content: dialogContent,
             buttons: {},
             render: (html) => {
+                html.closest('.dialog').css({
+                    'background': 'var(--cpr-background-chat-card, #232b2b)',
+                    'border': '1px solid var(--cpr-background-chat-border, #999999)'
+                });
+                html.closest('.dialog').find('.window-header').css({
+                    'background': 'var(--cpr-background-chat-card-block, #52606d)',
+                    'color': 'var(--cpr-color-white, #eaeaea)'
+                });
+                
                 html.find('.cancel-button').on('click', () => {
                     dialog.close();
+                }).on('mouseenter', function() {
+                    $(this).css('filter', 'brightness(1.2)');
+                }).on('mouseleave', function() {
+                    $(this).css('filter', 'none');
                 });
                 
                 html.find('.container-button[data-container-id]').on('click', async (event) => {
                     const containerId = $(event.currentTarget).data('container-id');
                     await this.putItemInContainer(item, containerId);
                     dialog.close();
+                }).on('mouseenter', function() {
+                    $(this).css('filter', 'brightness(1.3)');
+                }).on('mouseleave', function() {
+                    $(this).css('filter', 'none');
                 });
             }
         });
@@ -390,6 +432,17 @@ class WeightSystem {
             setTimeout(() => sheet.render(false), 100);
         }
     }
+
+	static renderContainerIcon(iconValue) {
+			if (!iconValue) iconValue = "fa:box-open";
+			if (!iconValue.includes(":")) iconValue = `fa:${iconValue}`;
+			
+			const [type, name] = iconValue.split(":");
+			if (type === "wa") {
+				return `<wa-icon name="${name}"></wa-icon>`;
+			}
+			return `<i class="fas fa-${name}"></i>`;
+		}
 
     static getContainerTypeLabel(containerType) {
         const typeLabels = {
@@ -657,7 +710,7 @@ class WeightSystem {
         }
     }
 
-    static addInlineWeights(html, actor) {
+static addInlineWeights(html, actor) {
         const gearTab = html.find('.tab[data-tab="gear"]');
         if (gearTab.length === 0) return;
         
@@ -670,36 +723,143 @@ class WeightSystem {
             }
         });
         
-        // Add weight display to items that have weight >0
         const items = actor.items;
+        const equippedSetting = game.settings.get(this.MODULE_ID, "equippedWeaponWeight");
+        const equippedMultiplier = Number(equippedSetting);
+        const includeUpgradeWeight = game.settings.get(this.MODULE_ID, "includeUpgradeWeight");
+        
         items.forEach(item => {
             const itemRow = gearTab.find(`[data-item-id="${item.id}"]`).closest('.item');
             
             if (itemRow.length > 0) {
                 const weightData = item.getFlag(this.MODULE_ID, "weight") || { value: 0 };
-                const itemWeight = weightData.value || 0;
+                const baseWeight = weightData.value || 0;
                 
-                if (itemWeight > 0) {
+                const isInstalledUpgrade = item.type === "itemUpgrade" && item.system.installedIn?.length > 0;
+                if (baseWeight <= 0 && !isInstalledUpgrade) {
+                    return;
+                }
+                
+                if (true) {
                     const quantity = item.system.amount ?? 1;
-                    const totalWeight = itemWeight * quantity;
+                    let effectiveWeight = baseWeight;
+                    let isModified = false;
+                    let modReason = "";
+                    
+                    if ((item.type === "cyberware" || item.type === "upgrade") && item.system.isInstalled === true) {
+                        effectiveWeight = 0;
+                        isModified = true;
+                        modReason = "Installed (weightless)";
+                    } else if (item.type === "itemUpgrade") {
+                        const installedIn = item.system.installedIn;
+                        if (installedIn && installedIn.length > 0) {
+                            const parentWeapon = actor.items.get(installedIn[0]);
+                            effectiveWeight = 0;
+                            isModified = true;
+                            if (includeUpgradeWeight) {
+                                modReason = `Installed in ${parentWeapon?.name || "weapon"} (counted there)`;
+                            } else {
+                                modReason = `Installed in ${parentWeapon?.name || "weapon"}`;
+                            }
+                        }
+                    } else if (item.type === "clothing" && item.system.equipped === "equipped") {
+                        effectiveWeight = 0;
+                        isModified = true;
+                        modReason = "Worn (weightless)";
+                    } else if ((item.type === "weapon" || item.type === "armor") && item.system.equipped === "equipped") {
+                        if (equippedMultiplier !== 1) {
+                            effectiveWeight = Math.round((baseWeight * equippedMultiplier) * 10) / 10;
+                            isModified = true;
+                            if (equippedMultiplier === 0) {
+                                modReason = "Equipped (weightless)";
+                            } else if (equippedMultiplier === 0.33) {
+                                modReason = "Equipped (1/3 weight)";
+                            } else if (equippedMultiplier === 0.5) {
+                                modReason = "Equipped (1/2 weight)";
+                            }
+                        }
+                    }
+                    
+                    if (item.type === "weapon" && includeUpgradeWeight) {
+                        const installedIds = item.system.installedItems?.list || [];
+                        let upgradeWeightTotal = 0;
+                        const upgradeNames = [];
+                        for (const id of installedIds) {
+                            const installed = actor.items.get(id);
+                            if (installed?.type === "itemUpgrade") {
+                                const upgradeData = installed.getFlag(this.MODULE_ID, "upgradeData") || {};
+                                
+                                if (!upgradeData.weightlessWhenAttached) {
+                                    const upgradeWeight = installed.getFlag(this.MODULE_ID, "weight")?.value || 0;
+                                    if (upgradeWeight > 0) {
+                                        upgradeWeightTotal += upgradeWeight;
+                                        upgradeNames.push(installed.name);
+                                    }
+                                }
+                                
+                                if (upgradeData.additionalWeight) {
+                                    upgradeWeightTotal += upgradeData.additionalWeight;
+                                    if (!upgradeNames.includes(installed.name)) {
+                                        upgradeNames.push(installed.name);
+                                    }
+                                }
+                            }
+                        }
+                        if (upgradeWeightTotal !== 0) {
+                            effectiveWeight += upgradeWeightTotal;
+                            effectiveWeight = Math.max(0, effectiveWeight);
+                            isModified = true;
+                            if (upgradeWeightTotal > 0) {
+                                modReason = `+${upgradeWeightTotal}u from: ${upgradeNames.join(", ")}`;
+                            } else {
+                                modReason = `${upgradeWeightTotal}u from: ${upgradeNames.join(", ")}`;
+                            }
+                        }
+                    }
+                
+                const containerId = item.getFlag(this.MODULE_ID, "containedIn");
+                if (containerId) {
+                    const container = actor.items.get(containerId);
+                    if (container) {
+                        const containerData = container.getFlag(this.MODULE_ID, "containerData") || {};
+                        const reduction = containerData.weightReduction ?? 1.0;
+                        if (reduction !== 1.0) {
+                            const preContainerWeight = effectiveWeight;
+                            effectiveWeight = Math.round((effectiveWeight * reduction) * 10) / 10;
+                            isModified = true;
+                            if (reduction === 0) {
+                                modReason = modReason ? `${modReason}, then in ${container.name} (weightless)` : `In ${container.name} (weightless)`;
+                            } else {
+                                modReason = modReason ? `${modReason}, then in ${container.name} (${Math.round(reduction * 100)}% weight)` : `In ${container.name} (${Math.round(reduction * 100)}% weight)`;
+                            }
+                        }
+                    }
+                }
+                    
+                    const totalWeight = effectiveWeight * quantity;
                     
                     const formatWeight = (weight) => {
                         const rounded = weight.toFixed(1);
                         return rounded.endsWith('.0') ? rounded.slice(0, -2) : rounded;
                     };
                     
-                    let weightDisplay = quantity > 1 ? 
-                        `${formatWeight(totalWeight)}u` : 
-                        `${formatWeight(totalWeight)}u`;
+                    const weightDisplay = `${formatWeight(totalWeight)}u`;
+                    
+                    let bgColor = 'rgba(0,0,0,0.3)';
+                    if (effectiveWeight < baseWeight) {
+                        bgColor = 'rgba(100, 255, 100, 0.7)';
+                    } else if (effectiveWeight > baseWeight) {
+                        bgColor = 'rgba(255, 100, 100, 0.7)';
+                    }
+                    const textColor = 'white';
+                    const tooltip = isModified ? ` title="${modReason} - Base: ${baseWeight}u"` : '';
                     
                     const dataElement = itemRow.find('.item-detail.gear-data.text-nowrap').first();
                     if (dataElement.length > 0) {
-                        const existingText = dataElement.text();
-                        if (!existingText.includes(`${weightDisplay} -`)) {
-                            const styledWeight = `<span style="color: white; font-size: 12px; font-weight: bold; padding: 1px 3px; background: rgba(0,0,0,0.3); border-radius: 2px;">${weightDisplay}</span> `;
-                            const newHtml = styledWeight + existingText;
-                            dataElement.html(newHtml);
-                        }
+                        dataElement.find('.weight-inline-display').remove();
+                        const existingText = dataElement.text().replace(/^[\d.]+u\s*/, '');
+                        const styledWeight = `<span class="weight-inline-display"${tooltip} style="color: ${textColor}; font-size: 12px; font-weight: bold; padding: 1px 3px; background: ${bgColor}; border-radius: 2px; cursor: ${isModified ? 'help' : 'default'};">${weightDisplay}</span> `;
+                        dataElement.html(styledWeight + existingText);
                     }
                 }
             }
@@ -767,7 +927,7 @@ class WeightSystem {
 
                 const progressBar = `<div data-weight-system-indicator="true" style="display: inline-block; margin-left: 6px; vertical-align: middle;">
                     <span style="color: #999; font-size: 10px; margin-right: 4px;">
-                        <i class="fas fa-${containerIcon}" style="margin-right: 4px;"></i>${shortLabel}:
+                        <span style="margin-right: 4px;">${this.renderContainerIcon(containerIcon)}</span>${shortLabel}:
                     </span>
                     <div style="display: inline-block; width: 150px !important; height: 8px !important; background: rgba(0,0,0,0.2); border-radius: 3px; overflow: hidden; vertical-align: middle;" title="${typeLabel}: ${contentsWeight.toFixed(1)}/${capacity} units (${contentCount} items)${isWeightless ? ' - Weightless!' : ''}${contentsText}">
                         <div style="height: 100%; width: ${percentage}%; background: ${barColor}; transition: all 0.3s ease;"></div>
@@ -788,7 +948,7 @@ class WeightSystem {
 
                 const indicator = `<span data-weight-system-indicator="true" style="position: absolute; left: 2px; top: 50%; transform: translateY(-50%); display: inline-flex; align-items: center; gap: 4px; color: #999; font-size: 11px; line-height: 1;" title="In container: ${container?.name}${isWeightless ? ' (Weightless)' : ''}">` +
                     `<span aria-hidden="true">↳</span>` +
-                    `<i class="fas fa-${containerIcon}"></i>` +
+                    this.renderContainerIcon(containerIcon) +
                 `</span>`;
 
                 nameCell.css({ position: 'relative', 'padding-left': '30px' });
@@ -887,17 +1047,41 @@ class WeightSystem {
         let weight = parseFloat(weightData.value) || 0;
         const quantity = item.system.amount ?? 1;
         
-        // Exclude installed cyberware/upgrades
         if ((item.type === "cyberware" || item.type === "upgrade") && item.system.isInstalled === true) {
             return 0;
         }
         
-        // Exclude equipped clothing from weight
+        if (item.type === "itemUpgrade") {
+            const installedIn = item.system.installedIn;
+            if (installedIn && installedIn.length > 0) {
+                return 0;
+            }
+        }
+        
         if (item.type === "clothing" && item.system.equipped === "equipped") {
             return 0;
         }
 
-        // Apply configurable weight reduction
+        if (item.type === "weapon" && game.settings.get(this.MODULE_ID, "includeUpgradeWeight")) {
+            const installedIds = item.system.installedItems?.list || [];
+            for (const id of installedIds) {
+                const installed = item.parent?.items.get(id);
+                if (installed?.type === "itemUpgrade") {
+                    const upgradeData = installed.getFlag(this.MODULE_ID, "upgradeData") || {};
+                    
+                    if (!upgradeData.weightlessWhenAttached) {
+                        const upgradeWeight = installed.getFlag(this.MODULE_ID, "weight")?.value || 0;
+                        weight += upgradeWeight;
+                    }
+                    
+                    if (upgradeData.additionalWeight) {
+                        weight += upgradeData.additionalWeight;
+                    }
+                }
+            }
+            weight = Math.max(0, weight);
+        }
+
         if ((item.type === "weapon" || item.type === "armor") && item.system.equipped === "equipped") {
             const equippedSetting = game.settings.get(this.MODULE_ID, "equippedWeaponWeight");
             const multiplier = Number(equippedSetting);
@@ -958,7 +1142,9 @@ class WeightSystem {
         ];
 
         const capacityBonusData = item.getFlag(this.MODULE_ID, "capacityBonus") || { value: 0 };
+        const upgradeData = item.getFlag(this.MODULE_ID, "upgradeData") || { weightlessWhenAttached: false, additionalWeight: 0 };
         const isCyberware = item.type === "cyberware";
+        const isItemUpgrade = item.type === "itemUpgrade";
 
         let weightFieldsHtml =
             '<div class="weight-system-fields" style="border: 1px solid #ccc; padding: 6px; margin: 6px 0; border-radius: 4px;">' +
@@ -979,22 +1165,37 @@ class WeightSystem {
                         '<input type="number" class="capacity-bonus-input" value="' + (capacityBonusData.value || 0) + '" step="1" min="0" style="width: 60px; padding: 2px;">' +
                         '<span style="font-size: 11px; color: #666;">units added to max capacity</span>' +
                     '</div>'
+                : '') +
+                (isItemUpgrade ?
+                    '<div class="upgrade-settings" style="margin-top: 6px; padding: 6px; border: 1px dashed #999; border-radius: 3px; background: rgba(0,0,0,0.05);">' +
+                        '<div style="font-weight: bold; margin-bottom: 4px;">Upgrade Weight Behavior:</div>' +
+                        '<div style="display: flex; align-items: center; gap: 5px; margin-bottom: 4px;">' +
+                            '<input type="checkbox" class="weightless-when-attached" ' + (upgradeData.weightlessWhenAttached ? 'checked' : '') + '>' +
+                            '<label>Weightless when attached</label>' +
+                            '<span style="font-size: 10px; color: #666;"></span>' +
+                        '</div>' +
+                        '<div style="display: flex; align-items: center; gap: 5px;">' +
+                            '<label>Additional adjustment to weapon:</label>' +
+                            '<input type="number" class="additional-weight-input" value="' + (upgradeData.additionalWeight || 0) + '" step="0.1" style="width: 60px; padding: 2px;">' +
+                            '<span style="font-size: 10px; color: #666;"></span>' +
+                        '</div>' +
+                    '</div>'
                 : '');
 
             if (isContainer) {
                 const currentContainerType = containerData.containerType || "multi";
                 const currentTypeData = containerTypes.find(t => t.value === currentContainerType) || containerTypes[0];
                 const iconOptions = [
-                    { value: "box-open", label: "Box" },
-                    { value: "briefcase", label: "Briefcase" },
-                    { value: "backpack", label: "Backpack" },
-                    { value: "shopping-bag", label: "Bag" },
-                    { value: "suitcase-rolling", label: "Suitcase" },
-                    { value: "toolbox", label: "Toolbox" },
-                    { value: "first-aid", label: "Medkit" },
-                    { value: "radiation", label: "Hazard" },
-                    { value: "bullseye", label: "Target" },
-                    { value: "shield-alt", label: "Shield" }
+                    { value: "fa:box-open" },
+                    { value: "fa:briefcase" },
+                    { value: "fa:backpack" },
+                    { value: "fa:gun" },
+                    { value: "fa:toolbox" },
+                    { value: "fa:first-aid" },
+                    { value: "fa:radiation" },
+                    { value: "fa:gem" },
+                    { value: "fa:circle-stop" },
+                    { value: "fa:sd-card" }
                 ];
             
             weightFieldsHtml += 
@@ -1040,14 +1241,18 @@ class WeightSystem {
                     '<div style="border-top: 1px solid #ccc; padding-top: 6px;">' +
                         '<div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">' +
                             '<label><strong>Container Icon:</strong></label>' +
-                            '<select class="container-icon-select" style="padding: 2px; font-size: 12px;">' +
+                            '<div class="container-icon-picker" style="display: flex; gap: 4px; flex-wrap: wrap;">' +
                                 iconOptions.map(icon =>
-                                    '<option value="' + icon.value + '" ' + (containerIcon === icon.value ? 'selected' : '') + '>' +
-                                        icon.label +
-                                    '</option>'
+                                    '<button type="button" class="icon-option" data-icon="' + icon.value + '" style="' +
+                                        'width: 28px; height: 28px; padding: 0; border: 2px solid ' + 
+                                        (containerIcon === icon.value ? 'var(--cpr-color-red, #b90202)' : 'transparent') + '; ' +
+                                        'background: var(--cpr-background-chat-card-block-before, #3b3b3b); ' +
+                                        'color: var(--cpr-color-white, #eaeaea); cursor: pointer; display: flex; ' +
+                                        'align-items: center; justify-content: center; font-size: 14px;">' +
+                                        this.renderContainerIcon(icon.value) +
+                                    '</button>'
                                 ).join('') +
-                            '</select>' +
-                            '<span class="container-icon-preview" style="font-size: 14px; color: #666;"><i class="fas fa-' + containerIcon + '"></i></span>' +
+                            '</div>' +
                         '</div>' +
                         '<p style="margin: 0 0 4px 0; font-size: 12px; font-weight: bold;">To use this container:</p>' +
                         '<p style="margin: 0; font-size: 11px; color: #666;">1. Put this container on a character<br>2. Right-click compatible items → "Put in Container"</p>' +
@@ -1227,12 +1432,33 @@ class WeightSystem {
             console.log(`Weight System: Set capacity to ${capacity} for ${item.name}`);
         });
 
-        html.find('.container-icon-select').on('change', async (event) => {
-            const selectedIcon = event.target.value;
-            const currentData = item.getFlag(this.MODULE_ID, "containerData") || {};
+        html.find('.icon-option').on('click', async function(event) {
+            event.preventDefault();
+            const selectedIcon = $(this).data('icon');
+            const currentData = item.getFlag(WeightSystem.MODULE_ID, "containerData") || {};
             await updateFlag("containerData", { ...currentData, icon: selectedIcon }, { render: false });
             console.log(`Weight System: Set container icon to ${selectedIcon} for ${item.name}`);
-            html.find('.container-icon-preview i').attr('class', 'fas fa-' + selectedIcon);
+            
+            html.find('.icon-option').css('border-color', 'transparent');
+            $(this).css('border-color', 'var(--cpr-color-red, #b90202)');
+        }).on('mouseenter', function() {
+            $(this).css('background', 'var(--cpr-background-chat-card-block, #52606d)');
+        }).on('mouseleave', function() {
+            $(this).css('background', 'var(--cpr-background-chat-card-block-before, #3b3b3b)');
+        });
+
+        html.find('.weightless-when-attached').on('change', async (event) => {
+            const isChecked = event.target.checked;
+            const currentData = item.getFlag(this.MODULE_ID, "upgradeData") || {};
+            await updateFlag("upgradeData", { ...currentData, weightlessWhenAttached: isChecked }, { render: false });
+            console.log(`Weight System: Set weightlessWhenAttached to ${isChecked} for ${item.name}`);
+        });
+
+        html.find('.additional-weight-input').on('change', async (event) => {
+            const additionalWeight = parseFloat(event.target.value) || 0;
+            const currentData = item.getFlag(this.MODULE_ID, "upgradeData") || {};
+            await updateFlag("upgradeData", { ...currentData, additionalWeight: additionalWeight }, { render: false });
+            console.log(`Weight System: Set additionalWeight to ${additionalWeight} for ${item.name}`);
         });
     }
 
@@ -1316,6 +1542,24 @@ class WeightSystem {
         }
     }
 
+	static findWeightData(itemName, weights, laxMatching) {
+			if (weights[itemName] !== undefined) {
+				return weights[itemName];
+			}
+			
+			if (laxMatching) {
+				const itemNameLower = itemName.toLowerCase();
+				for (const [key, value] of Object.entries(weights)) {
+					if (itemNameLower.includes(key.toLowerCase())) {
+						console.log(`Weight System: Lax match "${itemName}" ← "${key}"`);
+						return value;
+					}
+				}
+			}
+			
+			return null;
+		}
+		
     static async cloneCompendiumWithWeights(sourcePackName, weights, laxMatching = false) {
         const sourcePack = game.packs.get(sourcePackName);
         if (!sourcePack) {
@@ -1362,38 +1606,63 @@ class WeightSystem {
 
         const sourceItems = await sourcePack.getDocuments();
         let weightedCount = 0;
+        let containerCount = 0;
+        let upgradeCount = 0;
 
         const itemsToCreate = sourceItems.map(src => {
             const obj = src.toObject();
             delete obj._id;
 
-            let matchedWeight = null;
+            const matchedData = this.findWeightData(src.name, weights, laxMatching);
 
-            if (weights[src.name] !== undefined) {
-                matchedWeight = weights[src.name];
-            } else if (laxMatching) {
-                const itemNameLower = src.name.toLowerCase();
-                for (const [key, value] of Object.entries(weights)) {
-                    if (itemNameLower.includes(key.toLowerCase())) {
-                        matchedWeight = value;
-                        console.log(`Weight System: Lax match "${src.name}" ← "${key}" (${value})`);
-                        break;
-                    }
-                }
-            }
-
-            if (matchedWeight !== null) {
+            if (matchedData !== null) {
                 obj.flags = obj.flags || {};
                 obj.flags[WeightSystem.MODULE_ID] = obj.flags[WeightSystem.MODULE_ID] || {};
-                obj.flags[WeightSystem.MODULE_ID].weight = { value: matchedWeight };
-                weightedCount++;
+                
+                if (typeof matchedData === 'number') {
+                    obj.flags[WeightSystem.MODULE_ID].weight = { value: matchedData };
+                    weightedCount++;
+                } else if (typeof matchedData === 'object') {
+                    if (matchedData.weight !== undefined) {
+                        obj.flags[WeightSystem.MODULE_ID].weight = { value: matchedData.weight };
+                        weightedCount++;
+                    }
+                    
+                    if (matchedData.container) {
+                        const containerConfig = matchedData.container;
+                        const containerType = containerConfig.type || "multi";
+                        
+                        obj.flags[WeightSystem.MODULE_ID].isContainer = true;
+                        obj.flags[WeightSystem.MODULE_ID].containerData = {
+                            containerType: containerType,
+                            capacity: containerConfig.capacity || 50,
+                            weightReduction: containerType === "multi" ? (containerConfig.reduction ?? 1.0) : 0.0,
+                            allowedTypes: containerType === "multi" 
+                                ? ['ammo', 'armor', 'clothing', 'cyberdeck', 'cyberware', 'drug', 'gear', 'upgrade', 'program', 'weapon']
+                                : [containerType],
+                            icon: containerConfig.icon || "fa:box-open"
+                        };
+                        containerCount++;
+                        console.log(`Weight System: Container "${src.name}" (${containerType}, ${containerConfig.capacity || 50} capacity)`);
+                    }
+                    
+                    if (matchedData.upgrade) {
+                        const upgradeConfig = matchedData.upgrade;
+                        obj.flags[WeightSystem.MODULE_ID].upgradeData = {
+                            weightlessWhenAttached: upgradeConfig.weightlessWhenAttached || false,
+                            additionalWeight: upgradeConfig.additionalWeight || 0
+                        };
+                        upgradeCount++;
+                        console.log(`Weight System: Upgrade "${src.name}" (weightless: ${upgradeConfig.weightlessWhenAttached || false})`);
+                    }
+                }
             }
             return obj;
         });
 
         await Item.createDocuments(itemsToCreate, { pack: newPack.collection });
 
-        ui.notifications.info(`Done! ${weightedCount}/${sourceItems.length} items weighted.`);
+        ui.notifications.info(`Done! ${weightedCount} weighted, ${containerCount} containers, ${upgradeCount} upgrades.`);
         console.log(`Weight System: Cloned ${sourcePackName} -> ${newPack.collection}`);
     }
 
