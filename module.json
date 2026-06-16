@@ -3,7 +3,16 @@
   "title": "MMuton's Cyberpunk RED Weight System",
   "description": "Adds weight limits and containers to Cyberpunk RED.",
   "author": "MMuton",
-  "version": "1.4",
+  "version": "2.0",
+  "packs": [
+    {
+      "name": "example-items",
+      "label": "Weight System Examples",
+      "path": "packs/example-items",
+      "type": "Item",
+      "system": "cyberpunk-red-core"
+    }
+  ],
   "url": "https://github.com/MMuton/MMutons-Cyberpunk-Red-Weight-System",
   "manifest": "https://raw.githubusercontent.com/MMuton/MMutons-Cyberpunk-Red-Weight-System/main/module.json",
   "download": "https://github.com/MMuton/MMutons-Cyberpunk-Red-Weight-System/archive/refs/heads/main.zip",
