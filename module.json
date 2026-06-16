@@ -6,11 +6,11 @@
   "version": "2.0",
   "packs": [
     {
-      "name": "example-items",
-      "label": "Weight System Examples",
-      "path": "packs/weight-system-examples",
-      "type": "Item",
-      "system": "cyberpunk-red-core"
+    "name": "weight-system-examples",
+    "label": "Weight System Examples",
+    "path": "packs/weight-system-examples",
+    "type": "Item",
+    "system": "cyberpunk-red-core"
     }
   ],
   "url": "https://github.com/MMuton/MMutons-Cyberpunk-Red-Weight-System",
