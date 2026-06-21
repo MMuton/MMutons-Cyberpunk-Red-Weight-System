@@ -1,4 +1,3 @@
-// MMuton's Cyberpunk RED Weight System
 class WeightSystemCompendiumCloner extends FormApplication {
     static get defaultOptions() {
         return foundry.utils.mergeObject(super.defaultOptions, {
@@ -116,6 +115,15 @@ class WeightSystem {
             config: true,
             type: Boolean,
             default: true
+        });
+
+        game.settings.register(this.MODULE_ID, "excludeOwnedItems", {
+            name: "Exclude 'Owned' Items from Weight",
+            hint: "Items marked as 'Owned' (not 'Equipped' or 'Carried') contribute zero weight.",
+            scope: "world",
+            config: true,
+            type: Boolean,
+            default: false
         });
     }
 
@@ -740,6 +748,11 @@ static addInlineWeights(html, actor) {
                     return;
                 }
                 
+                const excludeOwned = game.settings.get(this.MODULE_ID, "excludeOwnedItems");
+                if (excludeOwned && item.system.equipped === "owned") {
+                    return;
+                }
+                
                 if (true) {
                     const quantity = item.system.amount ?? 1;
                     let effectiveWeight = baseWeight;
@@ -1046,6 +1059,10 @@ static addInlineWeights(html, actor) {
         
         let weight = parseFloat(weightData.value) || 0;
         const quantity = item.system.amount ?? 1;
+        
+        if (game.settings.get(this.MODULE_ID, "excludeOwnedItems") && item.system.equipped === "owned") {
+            return 0;
+        }
         
         if ((item.type === "cyberware" || item.type === "upgrade") && item.system.isInstalled === true) {
             return 0;
