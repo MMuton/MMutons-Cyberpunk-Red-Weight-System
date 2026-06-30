@@ -119,11 +119,21 @@ class WeightSystem {
 
         game.settings.register(this.MODULE_ID, "excludeOwnedItems", {
             name: "Exclude 'Owned' Items from Weight",
-            hint: "Items marked as 'Owned' (not 'Equipped' or 'Carried') contribute zero weight.",
+            hint: "Items marked as 'Owned' (not 'Equipped' or 'Carried') contribute zero weight and hide their weight display.",
             scope: "world",
             config: true,
             type: Boolean,
             default: false
+        });
+
+        game.settings.register(this.MODULE_ID, "vehicleCargoCapacity", {
+            name: "Vehicle Cargo Capacity",
+            hint: "Maximum cargo capacity for vehicles. Only works with MMuton's CPR Vehicle Actor Sheet installed.",
+            scope: "world",
+            config: true,
+            type: Number,
+            default: 20,
+            range: { min: 10, max: 500, step: 10 }
         });
     }
 
@@ -141,7 +151,6 @@ class WeightSystem {
         if (!game.settings.get(this.MODULE_ID, "enableWeightSystem")) return;
         if (app.actor.type !== "character") return;
 
-        // Right-click context menu
         html.find('.item').each((index, element) => {
             const $element = $(element);
             
@@ -156,7 +165,6 @@ class WeightSystem {
                 const isContained = item.getFlag(this.MODULE_ID, "containedIn");
                 const containers = app.actor.items.filter(i => i.getFlag(this.MODULE_ID, "isContainer"));
                 
-                // Create context menu
                 const menuItems = [];
                 
                 if (!isContained && containers.length > 0) {
@@ -207,7 +215,6 @@ class WeightSystem {
                     $('.weight-system-context-menu').remove();
                     $('body').append(menuHtml);
                     
-                    // Clicks
                     $('.weight-system-context-menu .menu-item').on('click', function() {
                         const action = $(this).data('action');
                         const menuItem = menuItems.find(i => i.name === action);
@@ -221,7 +228,6 @@ class WeightSystem {
                         $(this).css('background', 'var(--cpr-background-chat-card-block-before, #3b3b3b)');
                     });
                     
-                    // Remove menu when clicking elsewhere
                     setTimeout(() => {
                         $(document).one('click', () => $('.weight-system-context-menu').remove());
                     }, 100);
@@ -235,7 +241,6 @@ class WeightSystem {
 
         const actor = item.parent;
         
-        // Map item type to container compatibility
         const itemTypeMap = {
             "weapon": "weapon",
             "armor": "armor", 
@@ -251,7 +256,6 @@ class WeightSystem {
         
         const mappedItemType = itemTypeMap[item.type] || item.type;
         
-        // Find compatible containers
         const compatibleContainers = actor.items.filter(i => {
             if (!i.getFlag(this.MODULE_ID, "isContainer") || i.id === item.id) return false;
             
@@ -391,18 +395,15 @@ class WeightSystem {
         const containerData = container.getFlag(this.MODULE_ID, "containerData") || {};
         const itemWeight = this.getItemWeight(item);
 
-        // Check capacity
         const currentContentsWeight = this.getContainerContentsWeight(container);
         if (currentContentsWeight + itemWeight > (containerData.capacity || 50)) {
             ui.notifications.warn(`Container capacity exceeded! (${currentContentsWeight + itemWeight}/${containerData.capacity || 50} kg)`);
             return;
         }
 
-        // Check item type restrictions based on container type
         const containerType = containerData.containerType || "multi";
         const allowedTypes = containerData.allowedTypes || [];
         
-        // Convert item type to match container types
         const itemTypeMap = {
             "weapon": "weapon",
             "armor": "armor", 
@@ -424,7 +425,6 @@ class WeightSystem {
             return;
         }
 
-        // Put item in container
         await item.setFlag(this.MODULE_ID, "containedIn", containerId);
         
         const containerTypeLabel = this.getContainerTypeLabel(containerType);
@@ -434,7 +434,6 @@ class WeightSystem {
             ui.notifications.info(`${item.name} put into ${container.name}`);
         }
 
-        // Update character sheet display
         const sheet = item.parent.sheet;
         if (sheet && sheet.rendered) {
             setTimeout(() => sheet.render(false), 100);
@@ -533,7 +532,6 @@ class WeightSystem {
         await item.unsetFlag(this.MODULE_ID, "containedIn");
         ui.notifications.info(`${item.name} removed from ${container?.name || "container"}`);
 
-        // Update character sheet display  
         const sheet = item.parent?.sheet;
         if (sheet && sheet.rendered) {
             setTimeout(() => sheet.render(false), 100);
@@ -563,20 +561,29 @@ class WeightSystem {
         if (!game.settings.get(this.MODULE_ID, "enableWeightSystem")) return;
         if (app.actor.type !== "character") return;
         
-        // Set up the weight display and context menus on initial render
+        const isVehicleSheet = html.hasClass('vas-vehicle') || app.constructor.name === 'VehicleSheet';
+        if (isVehicleSheet) {
+            await this.onRenderVehicleSheet(app, html, data);
+            return;
+        }
+        
         await this.addWeightDisplay(app, html, data);
         this.addItemContextMenus(app, html, data);
     }
 
     static scheduleWeightUpdate(actor) {
-        // Debounce rapid updates
         const existing = this.updateTimeouts.get(actor.id);
         if (existing) clearTimeout(existing);
         
         this.updateTimeouts.set(actor.id, setTimeout(async () => {
             const sheet = actor.sheet;
             if (sheet && sheet.rendered) {
-                await this.updateWeightDisplayOnly(actor, sheet.element);
+                const isVehicleSheet = sheet.element.hasClass('vas-vehicle') || sheet.constructor.name === 'VehicleSheet';
+                if (isVehicleSheet) {
+                    await this.updateVehicleWeightDisplayOnly(actor, sheet.element);
+                } else {
+                    await this.updateWeightDisplayOnly(actor, sheet.element);
+                }
             }
             this.updateTimeouts.delete(actor.id);
         }, 50));
@@ -599,7 +606,6 @@ class WeightSystem {
                 'background': barColor
             });
             
-            // Overweight warning with cooldown
             const warningDiv = existingDisplay.find('div:contains("OVERWEIGHT!")');
             if (weightData.status === 'overweight' && warningDiv.length === 0) {
                 existingDisplay.find('.weight-display').append('<div style="color: red; font-size: 12px; font-weight: bold;">⚠️ OVERWEIGHT!</div>');
@@ -617,11 +623,45 @@ class WeightSystem {
             this.addItemContainerIndicators(html, actor);
         }
     }
+	
+	static async updateVehicleWeightDisplayOnly(actor, html) {
+        const weightData = await this.calculateVehicleWeight(actor);
+        
+        const existingDisplay = html.find('.weight-system-container.vehicle-weight');
+        if (existingDisplay.length > 0) {
+            const capacityText = existingDisplay.find('span').last();
+            capacityText.text(`${weightData.current}/${weightData.max} units`);
+            capacityText.css('color', weightData.status === 'overweight' ? '#de453b' : 'inherit');
+            
+            const progressBar = existingDisplay.find('.weight-fill');
+            let barColor = '#52606d';
+            if (weightData.percentage >= 39 && weightData.percentage < 69) {
+                barColor = '#fbcc76';
+            } else if (weightData.percentage >= 69) {
+                barColor = '#de453b';
+            }
+            progressBar.css({
+                'width': `${Math.min(weightData.percentage, 100)}%`,
+                'background': barColor
+            });
+            
+            const warningDiv = existingDisplay.find('div:contains("OVERLOADED!")');
+            if (weightData.status === 'overweight' && warningDiv.length === 0) {
+                existingDisplay.append('<div style="color: #de453b; font-size: 12px; font-weight: bold; margin-top: 4px;">⚠️ OVERLOADED!</div>');
+            } else if (weightData.status !== 'overweight' && warningDiv.length > 0) {
+                warningDiv.remove();
+            }
+            
+            this.addVehicleInlineWeights(html, actor);
+            this.addVehicleWeaponsArmorInlineWeights(html, actor);
+            this.addVehicleContainerIndicators(html, actor);
+        }
+    }
 
     static getWeightBarColor(percentage) {
-        if (percentage >= 69) return '#de453b'; // Red
-        if (percentage >= 39) return '#fbcc76'; // Yellow
-        return '#52606d'; // Gray
+        if (percentage >= 69) return '#de453b';
+        if (percentage >= 39) return '#fbcc76';
+        return '#52606d';
     }
 
     static isNotificationOnCooldown(actorId) {
@@ -629,7 +669,7 @@ class WeightSystem {
         if (!cooldownTime) return false;
         
         const now = Date.now();
-        const cooldownDuration = 30000; // 30 seconds
+        const cooldownDuration = 30000;
         return (now - cooldownTime) < cooldownDuration;
     }
 
@@ -649,7 +689,6 @@ class WeightSystem {
         
         const containerInfo = this.getContainerInfo(actor);
         
-        // Weight bar color based on percentage
         let barColor = '#52606d'; 
         if (weightData.percentage >= 39 && weightData.percentage < 69) {
             barColor = '#fbcc76'; 
@@ -901,8 +940,6 @@ static addInlineWeights(html, actor) {
                 const containerContents = items.filter(i => i.getFlag(this.MODULE_ID, "containedIn") === item.id);
                 const contentCount = containerContents.length;
                 const containerIcon = containerData.icon || "box-open";
-                
-                // Calculate container fullness for progress bar
                 const capacity = containerData.capacity || 50;
                 const contentsWeight = this.getContainerContentsWeight(item);
                 const percentage = Math.min((contentsWeight / capacity) * 100, 100);
@@ -931,8 +968,6 @@ static addInlineWeights(html, actor) {
                 };
 
                 const shortLabel = shortLabels[containerType] || "CONT";
-                
-                // List of contained items for tooltip
                 const itemNames = containerContents.map(i => i.name).join(', ');
                 const contentsText = contentCount > 0 ? `\nContains: ${itemNames}` : '\nEmpty';
                 
@@ -967,6 +1002,429 @@ static addInlineWeights(html, actor) {
                 nameCell.css({ position: 'relative', 'padding-left': '30px' });
                 nameCell.prepend(indicator);
             }
+        });
+    }
+	
+	static async onRenderVehicleSheet(app, html, data) {
+        if (!game.settings.get(this.MODULE_ID, "enableWeightSystem")) return;
+        
+        const actor = app.actor;
+        if (!actor) return;
+        
+        await this.addVehicleWeightDisplay(app, html, actor);
+        this.addVehicleInlineWeights(html, actor);
+        this.addVehicleWeaponsArmorInlineWeights(html, actor);
+        this.addVehicleContainerIndicators(html, actor);
+        this.addVehicleItemContextMenus(app, html, actor);
+    }
+
+    static async addVehicleWeightDisplay(app, html, actor) {
+        const cargoTab = html.find('.tab[data-tab="cargo"]');
+        if (cargoTab.length === 0) return;
+        
+        const weightData = await this.calculateVehicleWeight(actor);
+        
+        let barColor = '#52606d';
+        if (weightData.percentage >= 39 && weightData.percentage < 69) {
+            barColor = '#fbcc76';
+        } else if (weightData.percentage >= 69) {
+            barColor = '#de453b';
+        }
+        
+        const weightHtml = `
+            <div class="weight-system-container vehicle-weight" style="margin: 8px 0; padding: 6px; background: rgba(0,0,0,0.2); border-radius: 4px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                    <span><strong>Cargo Capacity:</strong></span>
+                    <span style="color: ${weightData.status === 'overweight' ? '#de453b' : 'inherit'}; font-weight: bold;">
+                        ${weightData.current}/${weightData.max} units
+                    </span>
+                </div>
+                <div style="height: 8px; background: rgba(0,0,0,0.3); border-radius: 4px; overflow: hidden;">
+                    <div class="weight-fill" style="height: 100%; width: ${Math.min(weightData.percentage, 100)}%; background: ${barColor}; transition: all 0.3s ease;"></div>
+                </div>
+                ${weightData.status === 'overweight' ? '<div style="color: #de453b; font-size: 12px; font-weight: bold; margin-top: 4px;">⚠️ OVERLOADED!</div>' : ''}
+            </div>
+        `;
+        
+        cargoTab.find('.weight-system-container').remove();
+        cargoTab.find('.items-header').after(weightHtml);
+    }
+	
+	static async calculateVehicleWeight(actor) {
+        const items = actor.items.filter(item => item.type !== "criticalInjury" && item.type !== "skill" && item.type !== "role");
+        let totalWeight = 0;
+        const equippedSetting = game.settings.get(this.MODULE_ID, "equippedWeaponWeight");
+        const equippedMultiplier = Number(equippedSetting);
+
+        for (const item of items) {
+            const containerId = item.getFlag(this.MODULE_ID, "containedIn");
+            if (containerId) continue;
+
+            if (this.isContainer(item)) {
+                totalWeight += await this.calculateContainerWeight(item, actor);
+                continue;
+            }
+
+            const weightData = item.getFlag(this.MODULE_ID, "weight");
+            if (!weightData) continue;
+
+            let weight = parseFloat(weightData.value) || 0;
+            const quantity = item.system.amount ?? 1;
+
+            if (item.type === "cyberware" && item.getFlag("mmutons-cyberpunk-red-vas", "installed")) {
+                continue;
+            }
+
+            if (item.type === "itemUpgrade" && item.getFlag("mmutons-cyberpunk-red-vas", "mounted")) {
+                continue;
+            }
+
+            if (item.type === "weapon" && item.getFlag("mmutons-cyberpunk-red-vas", "mountedPosition")) {
+                weight = Math.round((weight * equippedMultiplier) * 10) / 10;
+            }
+
+            totalWeight += weight * quantity;
+        }
+
+        let maxWeight = game.settings.get(this.MODULE_ID, "vehicleCargoCapacity") || 50;
+        
+        const capacityBonus = this.getVehicleCapacityBonus(actor);
+        maxWeight += capacityBonus;
+
+        const percentage = Math.round((totalWeight / maxWeight) * 100);
+        const status = percentage > 100 ? 'overweight' : 'normal';
+
+        return {
+            current: Math.round(totalWeight * 10) / 10,
+            max: maxWeight,
+            percentage: percentage,
+            status: status
+        };
+    }
+
+    static getVehicleCapacityBonus(actor) {
+        let bonus = 0;
+        
+        for (const item of actor.items) {
+            if (item.type === "cyberware" && item.getFlag("mmutons-cyberpunk-red-vas", "installed")) {
+                const capacityBonus = item.getFlag(this.MODULE_ID, "capacityBonus");
+                if (capacityBonus && capacityBonus.value > 0) {
+                    bonus += capacityBonus.value;
+                }
+            }
+        }
+        
+        return bonus;
+    }
+
+    static addVehicleInlineWeights(html, actor) {
+        const cargoTab = html.find('.tab[data-tab="cargo"]');
+        if (cargoTab.length === 0) return;
+        
+        const items = actor.items;
+        
+        items.forEach(item => {
+            const itemRow = cargoTab.find(`.item[data-item-id="${item.id}"]`);
+            if (itemRow.length === 0) return;
+            
+            const weightData = item.getFlag(this.MODULE_ID, "weight") || { value: 0 };
+            const baseWeight = weightData.value || 0;
+            
+            if (baseWeight <= 0) return;
+            
+            const quantity = item.system.amount ?? 1;
+            let effectiveWeight = baseWeight;
+            let isModified = false;
+            let modReason = "";
+            
+            if (item.type === "cyberware" && item.getFlag("mmutons-cyberpunk-red-vas", "installed")) {
+                effectiveWeight = 0;
+                isModified = true;
+                modReason = "Installed (weightless)";
+            } else if (item.type === "itemUpgrade" && item.getFlag("mmutons-cyberpunk-red-vas", "mounted")) {
+                effectiveWeight = 0;
+                isModified = true;
+                modReason = "Mounted (weightless)";
+            } else if (item.type === "weapon" && item.getFlag("mmutons-cyberpunk-red-vas", "mountedPosition")) {
+                const equippedSetting = game.settings.get(this.MODULE_ID, "equippedWeaponWeight");
+                const equippedMultiplier = Number(equippedSetting);
+                if (equippedMultiplier !== 1) {
+                    effectiveWeight = Math.round((baseWeight * equippedMultiplier) * 10) / 10;
+                    isModified = true;
+                    if (equippedMultiplier === 0) {
+                        modReason = "Mounted (weightless)";
+                    } else if (equippedMultiplier === 0.33) {
+                        modReason = "Mounted (1/3 weight)";
+                    } else if (equippedMultiplier === 0.5) {
+                        modReason = "Mounted (1/2 weight)";
+                    }
+                }
+            }
+            
+            const containerId = item.getFlag(this.MODULE_ID, "containedIn");
+            if (containerId) {
+                const container = actor.items.get(containerId);
+                if (container) {
+                    const containerData = container.getFlag(this.MODULE_ID, "containerData") || {};
+                    const reduction = containerData.weightReduction ?? 1.0;
+                    if (reduction !== 1.0) {
+                        effectiveWeight = Math.round((effectiveWeight * reduction) * 10) / 10;
+                        isModified = true;
+                        if (reduction === 0) {
+                            modReason = `In ${container.name} (weightless)`;
+                        } else {
+                            modReason = `In ${container.name} (${Math.round(reduction * 100)}% weight)`;
+                        }
+                    }
+                }
+            }
+            
+            const totalWeight = effectiveWeight * quantity;
+            
+            const formatWeight = (weight) => {
+                const rounded = weight.toFixed(1);
+                return rounded.endsWith('.0') ? rounded.slice(0, -2) : rounded;
+            };
+            
+            const weightDisplay = `${formatWeight(totalWeight)}u`;
+            
+            let bgColor = 'rgba(0,0,0,0.3)';
+            if (effectiveWeight < baseWeight) {
+                bgColor = 'rgba(100, 255, 100, 0.7)';
+            } else if (effectiveWeight > baseWeight) {
+                bgColor = 'rgba(255, 100, 100, 0.7)';
+            }
+            
+            const tooltip = isModified ? ` title="${modReason} - Base: ${baseWeight}u"` : '';
+            
+            const propertiesDiv = itemRow.find('.item-properties');
+            propertiesDiv.find('.weight-inline-display').remove();
+            
+            const weightSpan = `<span class="weight-inline-display property"${tooltip} style="color: white; font-weight: bold; padding: 1px 4px; background: ${bgColor}; border-radius: 2px; cursor: ${isModified ? 'help' : 'default'};">${weightDisplay}</span>`;
+            propertiesDiv.prepend(weightSpan);
+        });
+    }
+	
+	static addVehicleWeaponsArmorInlineWeights(html, actor) {
+        const weaponsTab = html.find('.tab[data-tab="weapons"]');
+        if (weaponsTab.length === 0) return;
+        
+        const items = actor.items;
+        const equippedSetting = game.settings.get(this.MODULE_ID, "equippedWeaponWeight");
+        const equippedMultiplier = Number(equippedSetting);
+        
+        items.forEach(item => {
+            if (item.type !== "weapon" && item.type !== "armor") return;
+            
+            const itemRow = weaponsTab.find(`.item[data-item-id="${item.id}"]`);
+            if (itemRow.length === 0) return;
+            
+            const weightData = item.getFlag(this.MODULE_ID, "weight") || { value: 0 };
+            const baseWeight = weightData.value || 0;
+            
+            if (baseWeight <= 0) return;
+            
+            const quantity = item.system.amount ?? 1;
+            let effectiveWeight = baseWeight;
+            let isModified = false;
+            let modReason = "";
+            
+            const isMounted = item.getFlag("mmutons-cyberpunk-red-vas", "mountedPosition");
+            
+            if (isMounted) {
+                if (equippedMultiplier !== 1) {
+                    effectiveWeight = Math.round((baseWeight * equippedMultiplier) * 10) / 10;
+                    isModified = true;
+                    if (equippedMultiplier === 0) {
+                        modReason = "Mounted (weightless)";
+                    } else if (equippedMultiplier === 0.33) {
+                        modReason = "Mounted (1/3 weight)";
+                    } else if (equippedMultiplier === 0.5) {
+                        modReason = "Mounted (1/2 weight)";
+                    }
+                }
+            }
+            
+            const totalWeight = effectiveWeight * quantity;
+            
+            const formatWeight = (weight) => {
+                const rounded = weight.toFixed(1);
+                return rounded.endsWith('.0') ? rounded.slice(0, -2) : rounded;
+            };
+            
+            const weightDisplay = `${formatWeight(totalWeight)}u`;
+            
+            let bgColor = 'rgba(0,0,0,0.3)';
+            if (effectiveWeight < baseWeight) {
+                bgColor = 'rgba(100, 255, 100, 0.7)';
+            } else if (effectiveWeight > baseWeight) {
+                bgColor = 'rgba(255, 100, 100, 0.7)';
+            }
+            
+            const tooltip = isModified ? ` title="${modReason} - Base: ${baseWeight}u"` : '';
+            
+            itemRow.find('.weight-inline-display').remove();
+            
+            const weightSpan = `<span class="weight-inline-display"${tooltip} style="color: white; font-weight: bold; padding: 1px 4px; background: ${bgColor}; border-radius: 2px; cursor: ${isModified ? 'help' : 'default'}; margin-left: 6px; font-size: 11px; vertical-align: middle;">${weightDisplay}</span>`;
+            
+            const mountedBadge = itemRow.find('.mounted-badge');
+            if (mountedBadge.length > 0) {
+                mountedBadge.after(weightSpan);
+            } else {
+                const itemControls = itemRow.find('.item-controls');
+                if (itemControls.length > 0) {
+                    itemControls.append(weightSpan);
+                } else {
+                    const itemProperties = itemRow.find('.item-properties');
+                    if (itemProperties.length > 0) {
+                        itemProperties.append(weightSpan);
+                    }
+                }
+            }
+        });
+    }
+
+    static addVehicleContainerIndicators(html, actor) {
+        const cargoTab = html.find('.tab[data-tab="cargo"]');
+        if (cargoTab.length === 0) return;
+        
+        const items = actor.items;
+        
+        items.forEach(item => {
+            const isContainer = item.getFlag(this.MODULE_ID, "isContainer");
+            const containedIn = item.getFlag(this.MODULE_ID, "containedIn");
+            
+            const itemRow = cargoTab.find(`.item[data-item-id="${item.id}"]`);
+            if (itemRow.length === 0) return;
+            
+            if (isContainer) {
+                const containerData = item.getFlag(this.MODULE_ID, "containerData") || {};
+                const containerType = containerData.containerType || "multi";
+                const containerIcon = containerData.icon || "fa:box-open";
+                const capacity = containerData.capacity || 50;
+                const contentsWeight = this.getContainerContentsWeight(item);
+                const percentage = Math.min((contentsWeight / capacity) * 100, 100);
+                
+                let barColor = '#52606d';
+                if (percentage >= 39 && percentage < 69) barColor = '#fbcc76';
+                else if (percentage >= 69) barColor = '#de453b';
+                
+                const shortLabels = {
+                    "multi": "CONT", "ammo": "AMMO", "armor": "ARMR", "clothing": "CLTH",
+                    "cyberdeck": "CYBD", "cyberware": "CYBW", "drug": "DRUG", "gear": "GEAR",
+                    "upgrade": "UPGD", "program": "PRGM", "weapon": "WEAP"
+                };
+                const shortLabel = shortLabels[containerType] || "CONT";
+                
+                itemRow.find('.vehicle-container-indicator').remove();
+                
+                const indicator = `<div class="vehicle-container-indicator" style="display: flex; align-items: center; gap: 4px; margin-left: 8px;">
+                    <span style="color: #999; font-size: 10px;">${this.renderContainerIcon(containerIcon)} ${shortLabel}:</span>
+                    <div style="width: 60px; height: 6px; background: rgba(0,0,0,0.3); border-radius: 3px; overflow: hidden;" title="${contentsWeight.toFixed(1)}/${capacity} units">
+                        <div style="height: 100%; width: ${percentage}%; background: ${barColor};"></div>
+                    </div>
+                </div>`;
+                
+                itemRow.find('.item-details').append(indicator);
+            }
+            
+            if (containedIn) {
+                const container = items.get(containedIn);
+                const containerIcon = container?.getFlag(this.MODULE_ID, "containerData")?.icon || "fa:box-open";
+                
+                itemRow.find('.vehicle-contained-indicator').remove();
+                
+                const indicator = `<span class="vehicle-contained-indicator" style="color: #999; font-size: 11px; margin-right: 4px;" title="In container: ${container?.name || 'Unknown'}">↳ ${this.renderContainerIcon(containerIcon)}</span>`;
+                itemRow.find('.item-name').prepend(indicator);
+            }
+        });
+    }
+
+    static addVehicleItemContextMenus(app, html, actor) {
+        const cargoTab = html.find('.tab[data-tab="cargo"]');
+        if (cargoTab.length === 0) return;
+        
+        cargoTab.find('.item').each((index, element) => {
+            const $element = $(element);
+            
+            $element.off('contextmenu.weight-system').on('contextmenu.weight-system', (event) => {
+                event.preventDefault();
+                
+                const itemId = $element.data('item-id');
+                const item = actor.items.get(itemId);
+                if (!item) return;
+                
+                const isContained = item.getFlag(this.MODULE_ID, "containedIn");
+                const containers = actor.items.filter(i => i.getFlag(this.MODULE_ID, "isContainer"));
+                
+                const menuItems = [];
+                
+                if (!isContained && containers.length > 0) {
+                    menuItems.push({
+                        icon: '<i class="fas fa-box"></i>',
+                        name: "Put in Container",
+                        callback: () => this.showContainerDialog(item)
+                    });
+                }
+                
+                if (isContained) {
+                    menuItems.push({
+                        icon: '<i class="fas fa-box-open"></i>',
+                        name: "Remove from Container",
+                        callback: () => this.removeFromContainer(item)
+                    });
+                }
+                
+                if (menuItems.length > 0) {
+                    const menuHtml = `
+                        <div class="weight-system-context-menu" style="
+                            position: fixed; 
+                            left: ${event.pageX}px; 
+                            top: ${event.pageY}px; 
+                            background: var(--cpr-background-chat-card-block, #52606d); 
+                            border: 1px solid var(--cpr-background-chat-border, #999999); 
+                            padding: 0;
+                            box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+                            z-index: 10000;
+                            min-width: 180px;
+                            clip-path: polygon(0 0.5rem, 0 100%, 100% 100%, 100% 0, 0.5rem 0);
+                        ">
+                            ${menuItems.map(item => 
+                                `<div class="menu-item" data-action="${item.name}" style="
+                                    padding: 8px 12px; 
+                                    cursor: pointer; 
+                                    border-bottom: 1px solid var(--cpr-background-chat-card-block-before, #3b3b3b);
+                                    font-size: 13px;
+                                    color: var(--cpr-text-chat-normal, #eaeaea);
+                                    background: var(--cpr-background-chat-card-block-before, #3b3b3b);
+                                ">
+                                    ${item.icon} ${item.name}
+                                </div>`
+                            ).join('')}
+                        </div>
+                    `;
+                    
+                    $('.weight-system-context-menu').remove();
+                    $('body').append(menuHtml);
+                    
+                    $('.weight-system-context-menu .menu-item').on('click', function() {
+                        const action = $(this).data('action');
+                        const menuItem = menuItems.find(i => i.name === action);
+                        if (menuItem) menuItem.callback();
+                        $('.weight-system-context-menu').remove();
+                    });
+                    
+                    $('.weight-system-context-menu .menu-item').on('mouseenter', function() {
+                        $(this).css('background', 'var(--cpr-background-chat-card-block, #52606d)');
+                    }).on('mouseleave', function() {
+                        $(this).css('background', 'var(--cpr-background-chat-card-block-before, #3b3b3b)');
+                    });
+                    
+                    setTimeout(() => {
+                        $(document).one('click', () => $('.weight-system-context-menu').remove());
+                    }, 100);
+                }
+            });
         });
     }
 
@@ -1502,11 +1960,9 @@ static addInlineWeights(html, actor) {
 
     static isWeightRelevantChange(document, options) {
         if (document.documentName === "Item") {
-            // Weight flag changes
             const flagChanges = foundry.utils.getProperty(options, "flags.mmutons-cyberpunk-red-weight-system");
             if (flagChanges !== undefined) return true;
             
-            // Amount/quantity changes
             const amountChange = foundry.utils.getProperty(options, "system.amount");
             if (amountChange !== undefined) return true;
             
