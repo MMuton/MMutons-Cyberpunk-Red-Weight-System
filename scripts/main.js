@@ -629,9 +629,10 @@ class WeightSystem {
         
         const existingDisplay = html.find('.weight-system-container.vehicle-weight');
         if (existingDisplay.length > 0) {
-            const capacityText = existingDisplay.find('span').last();
-            capacityText.text(`${weightData.current}/${weightData.max} units`);
+            const capacityText = existingDisplay.find('.vehicle-weight-text');
+            capacityText.html(this._vehicleCapText(weightData));
             capacityText.css('color', weightData.status === 'overweight' ? '#de453b' : 'inherit');
+            this._bindVehicleCapEdit(actor, existingDisplay);
             
             const progressBar = existingDisplay.find('.weight-fill');
             let barColor = '#52606d';
@@ -1035,8 +1036,8 @@ static addInlineWeights(html, actor) {
             <div class="weight-system-container vehicle-weight" style="margin: 8px 0; padding: 6px; background: rgba(0,0,0,0.2); border-radius: 4px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
                     <span><strong>Cargo Capacity:</strong></span>
-                    <span style="color: ${weightData.status === 'overweight' ? '#de453b' : 'inherit'}; font-weight: bold;">
-                        ${weightData.current}/${weightData.max} units
+                    <span class="vehicle-weight-text" style="color: ${weightData.status === 'overweight' ? '#de453b' : 'inherit'}; font-weight: bold;">
+                        ${this._vehicleCapText(weightData)}
                     </span>
                 </div>
                 <div style="height: 8px; background: rgba(0,0,0,0.3); border-radius: 4px; overflow: hidden;">
@@ -1048,6 +1049,57 @@ static addInlineWeights(html, actor) {
         
         cargoTab.find('.weight-system-container').remove();
         cargoTab.find('.items-header').after(weightHtml);
+        this._bindVehicleCapEdit(actor, cargoTab.find('.weight-system-container.vehicle-weight'));
+    }
+
+    static _vehicleCapText(weightData) {
+        const valAttrs = game.user.isGM
+            ? 'data-editable="1" title="Click to edit cargo capacity" style="cursor: pointer; text-decoration: underline dotted;"'
+            : '';
+        return `${weightData.current}/<span class="vehicle-cap-value" ${valAttrs} data-base="${weightData.base}">${weightData.max}</span> units`;
+    }
+
+    static _bindVehicleCapEdit(actor, container) {
+        if (!game.user.isGM || !container || container.length === 0) return;
+        container.find('.vehicle-cap-value').off('click.weight-system').on('click.weight-system', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            this._beginVehicleCapEdit(actor, $(event.currentTarget));
+        });
+    }
+
+    static _beginVehicleCapEdit(actor, $el) {
+        const base = parseFloat($el.attr('data-base')) || 0;
+        const $input = $(`<input type="number" class="vehicle-cap-input" value="${base}" step="1" min="0" style="width: 64px; padding: 1px 3px;">`);
+        $el.replaceWith($input);
+        $input.trigger('focus').trigger('select');
+
+        const restore = () => {
+            const sheet = actor.sheet;
+            if (sheet?.rendered) this.updateVehicleWeightDisplayOnly(actor, sheet.element);
+        };
+        const commit = async () => {
+            $input.off();
+            const val = parseFloat($input.val());
+            if (Number.isFinite(val) && val >= 0) {
+                await actor.setFlag(this.MODULE_ID, "vehicleCapacity", val);
+            } else {
+                restore();
+            }
+        };
+
+        $input.on('keydown', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                $input.off('blur');
+                commit();
+            } else if (event.key === 'Escape') {
+                event.preventDefault();
+                $input.off();
+                restore();
+            }
+        });
+        $input.on('blur', commit);
     }
 	
 	static async calculateVehicleWeight(actor) {
@@ -1086,17 +1138,22 @@ static addInlineWeights(html, actor) {
             totalWeight += weight * quantity;
         }
 
-        let maxWeight = game.settings.get(this.MODULE_ID, "vehicleCargoCapacity") || 50;
+        const perVehicleCap = actor.getFlag(this.MODULE_ID, "vehicleCapacity");
+        const baseWeight = Number.isFinite(perVehicleCap)
+            ? perVehicleCap
+            : (game.settings.get(this.MODULE_ID, "vehicleCargoCapacity") || 50);
         
         const capacityBonus = this.getVehicleCapacityBonus(actor);
-        maxWeight += capacityBonus;
+        const maxWeight = baseWeight + capacityBonus;
 
         const percentage = Math.round((totalWeight / maxWeight) * 100);
         const status = percentage > 100 ? 'overweight' : 'normal';
 
         return {
             current: Math.round(totalWeight * 10) / 10,
-            max: maxWeight,
+            max: Math.round(maxWeight * 10) / 10,
+            base: baseWeight,
+            bonus: capacityBonus,
             percentage: percentage,
             status: status
         };
@@ -1111,6 +1168,12 @@ static addInlineWeights(html, actor) {
                 if (capacityBonus && capacityBonus.value > 0) {
                     bonus += capacityBonus.value;
                 }
+            }
+
+            if (item.type === "itemUpgrade" && item.getFlag("mmutons-cyberpunk-red-vas", "mounted")) {
+                const upgradeData = item.getFlag(this.MODULE_ID, "upgradeData");
+                const adjustment = parseFloat(upgradeData?.additionalWeight) || 0;
+                bonus += adjustment;
             }
         }
         
@@ -1650,7 +1713,7 @@ static addInlineWeights(html, actor) {
                             '<span style="font-size: 10px; color: #666;"></span>' +
                         '</div>' +
                         '<div style="display: flex; align-items: center; gap: 5px;">' +
-                            '<label>Additional adjustment to weapon:</label>' +
+                            '<label>Additional adjustment to item:</label>' +
                             '<input type="number" class="additional-weight-input" value="' + (upgradeData.additionalWeight || 0) + '" step="0.1" style="width: 60px; padding: 2px;">' +
                             '<span style="font-size: 10px; color: #666;"></span>' +
                         '</div>' +

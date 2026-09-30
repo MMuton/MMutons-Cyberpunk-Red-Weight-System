@@ -1,4 +1,3 @@
-/* MMuton's Cyberpunk RED Weight System Styles */
 
 .weight-system-container {
     margin: 8px 0;
@@ -35,7 +34,6 @@
     transition: all 0.3s ease;
 }
 
-/* Fields in item sheets */
 .weight-system-fields {
     border: 1px solid #ccc;
     padding: 6px;
@@ -73,7 +71,6 @@
     font-weight: bold;
 }
 
-/* Container item styling in character sheets */
 .container-item {
     border: 2px dashed #666;
     border-radius: 6px;
