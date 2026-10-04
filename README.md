@@ -25,13 +25,18 @@ This module has been created to add some depth to looting and perhaps even to ba
 
 Note: The values given below can be changed in the settings.
 
-* Max capacity is determined by a character's **Body x 2.5**, or a custom absolute number of your choosing.
+* Max capacity is determined by a character's **BODY × 3**, or a custom absolute number of your choosing.
 * Max capacity can be upgraded with cyberware.
 * The capacity bar shows at the top of the Gear tab and is calculated automatically.
 * Equipped weapons & armor weigh **1/3 of their original value**.
 * Upgrades & ammo do not weigh anything when inserted into an item.
 * Container system: Either use a multi-purpose bag like a carryall and reduce the weight of everything inside by 50%,
 or use a specialized bag such as a MedTech Bag and reduce the weight of the stored drug items to 0.
+* Containers get their own **Containers** section on the Gear tab (just above the Gear category), with each bag's contents listed under it (collapsible). This can be turned off per user with the **Group Items Under Their Container** setting, which keeps items in their normal categories with a container marker instead.
+* Drag an item onto a container (or onto an item already inside it) to put it in; drag a stored item anywhere else on the Gear tab to take it out. Right-click still works too.
+* While you drag an item, containers light up: **yellow** = can take it, **green** = you're hovering over one that can, **red** = wrong type, full, or not allowed.
+* Containers can't be put inside other containers, and installed items (cyberware, attachments, programs) can't be stored.
+* All weights are in **units**.
 
 <h1 align="center"> Dynamic Tracking </h1>
 <p align="center">

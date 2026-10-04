@@ -3,22 +3,10 @@
   "title": "MMuton's Cyberpunk RED Weight System",
   "description": "Adds weight limits and containers to Cyberpunk RED.",
   "author": "MMuton",
-  "version": "2.2",
-  "packs": [
-    {
-    "name": "weight-system-examples",
-    "label": "Weight System Examples",
-    "path": "packs/weight-system-examples",
-    "type": "Item",
-    "system": "cyberpunk-red-core"
-    }
-  ],
-  "url": "https://github.com/MMuton/MMutons-Cyberpunk-Red-Weight-System",
-  "manifest": "https://raw.githubusercontent.com/MMuton/MMutons-Cyberpunk-Red-Weight-System/main/module.json",
-  "download": "https://github.com/MMuton/MMutons-Cyberpunk-Red-Weight-System/archive/refs/heads/main.zip",
+  "version": "2.3",
   "compatibility": {
-    "minimum": "11",
-    "verified": "12",
+    "minimum": "12",
+    "verified": "12.331",
     "maximum": "12"
   },
   "relationships": {
@@ -27,13 +15,24 @@
         "id": "cyberpunk-red-core",
         "type": "system",
         "compatibility": {
-          "minimum": "0.12.0"
+          "minimum": "0.92.0"
         }
       }
     ]
   },
   "esmodules": ["scripts/main.js"],
   "styles": ["styles/weight-system.css"],
-  "languages": []
+  "packs": [
+    {
+      "name": "weight-system-examples",
+      "label": "Weight System Examples",
+      "path": "packs/weight-system-examples",
+      "type": "Item",
+      "system": "cyberpunk-red-core"
+    }
+  ],
+  "url": "https://github.com/MMuton/MMutons-Cyberpunk-Red-Weight-System",
+  "manifest": "https://raw.githubusercontent.com/MMuton/MMutons-Cyberpunk-Red-Weight-System/main/module.json",
+  "download": "https://github.com/MMuton/MMutons-Cyberpunk-Red-Weight-System/archive/refs/heads/main.zip",
+  "changelog": "https://raw.githubusercontent.com/MMuton/MMutons-Cyberpunk-Red-Weight-System/main/CHANGELOG.md"
 }
-

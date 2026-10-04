@@ -1,3 +1,62 @@
+const MODULE_ID = "mmutons-cyberpunk-red-weight-system";
+const VAS_ID = "mmutons-cyberpunk-red-vas";
+
+const CONTAINER_CATEGORIES = ["ammo", "armor", "clothing", "cyberdeck", "cyberware", "drug", "gear", "upgrade", "program", "weapon"];
+
+const ITEM_TYPE_TO_CATEGORY = { itemUpgrade: "upgrade" };
+
+const NON_PHYSICAL_TYPES = new Set(["criticalInjury", "netarch", "role", "skill"]);
+
+const CONTAINER_TYPE_LABELS = {
+    multi: "Multi-Functional Container",
+    ammo: "Ammo Container",
+    armor: "Armor Container",
+    clothing: "Clothing Container",
+    cyberdeck: "Cyberdeck Container",
+    cyberware: "Cyberware Container",
+    drug: "Drug Container",
+    gear: "Gear Container",
+    upgrade: "Upgrade Container",
+    program: "Program Container",
+    weapon: "Weapon Container"
+};
+
+const CONTAINER_SHORT_LABELS = {
+    multi: "MULT", ammo: "AMMO", armor: "ARMR", clothing: "CLTH", cyberdeck: "CYBD", cyberware: "CYBW",
+    drug: "DRUG", gear: "GEAR", upgrade: "UPGD", program: "PRGM", weapon: "WEAP"
+};
+
+const CONTAINER_ICON_OPTIONS = [
+    "fa:box-open", "fa:briefcase", "fa:backpack", "fa:gun", "fa:toolbox",
+    "fa:first-aid", "fa:radiation", "fa:gem", "fa:circle-stop", "fa:sd-card"
+];
+
+const EQUIPPED_LABELS = { 0: "weightless", 0.33: "1/3 weight", 0.5: "1/2 weight" };
+
+function esc(value) {
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
+function num(value, fallback) {
+    if (value === null || value === undefined || value === "") return fallback;
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+}
+
+function round1(value) {
+    return Math.round(value * 10) / 10;
+}
+
+function fmt(value) {
+    const rounded = round1(value).toFixed(1);
+    return rounded.endsWith(".0") ? rounded.slice(0, -2) : rounded;
+}
+
 class WeightSystemCompendiumCloner extends FormApplication {
     static get defaultOptions() {
         return foundry.utils.mergeObject(super.defaultOptions, {
@@ -13,9 +72,14 @@ class WeightSystemCompendiumCloner extends FormApplication {
         return this;
     }
 }
+
 class WeightSystem {
-    static MODULE_ID = "mmutons-cyberpunk-red-weight-system";
-    
+    static MODULE_ID = MODULE_ID;
+
+    static updateTimeouts = new Map();
+    static notificationCooldowns = new Map();
+    static itemActiveTabs = new Map();
+
     static initialize() {
         console.log("MMuton's Weight System | Initializing...");
         this.registerSettings();
@@ -23,7 +87,7 @@ class WeightSystem {
     }
 
     static registerSettings() {
-        game.settings.register(this.MODULE_ID, "enableWeightSystem", {
+        game.settings.register(MODULE_ID, "enableWeightSystem", {
             name: "Enable Weight System",
             hint: "Enable weight tracking for player characters",
             scope: "world",
@@ -33,7 +97,7 @@ class WeightSystem {
             requiresReload: true
         });
 
-        game.settings.register(this.MODULE_ID, "capacityCalculation", {
+        game.settings.register(MODULE_ID, "capacityCalculation", {
             name: "Capacity Calculation Method",
             hint: "How to calculate maximum carry capacity",
             scope: "world",
@@ -46,8 +110,8 @@ class WeightSystem {
             default: "body"
         });
 
-        game.settings.register(this.MODULE_ID, "baseWeightMultiplier", {
-            name: "Capacity Multiplier (BODY × N)", 
+        game.settings.register(MODULE_ID, "baseWeightMultiplier", {
+            name: "Capacity Multiplier (BODY × N)",
             hint: "Multiply BODY stat by this value (only used if calculation method is BODY × Multiplier)",
             scope: "world",
             config: true,
@@ -56,7 +120,7 @@ class WeightSystem {
             range: { min: 1, max: 10, step: 0.5 }
         });
 
-        game.settings.register(this.MODULE_ID, "customCapacity", {
+        game.settings.register(MODULE_ID, "customCapacity", {
             name: "Custom Capacity Value",
             hint: "Fixed carry capacity for all characters (only used if calculation method is Custom Fixed Value)",
             scope: "world",
@@ -66,7 +130,7 @@ class WeightSystem {
             range: { min: 5, max: 200, step: 5 }
         });
 
-        game.settings.register(this.MODULE_ID, "enableContainers", {
+        game.settings.register(MODULE_ID, "enableContainers", {
             name: "Enable Container System",
             hint: "Allow items to be containers that reduce weight",
             scope: "world",
@@ -75,7 +139,7 @@ class WeightSystem {
             default: true
         });
 
-        game.settings.register(this.MODULE_ID, "equippedWeaponWeight", {
+        game.settings.register(MODULE_ID, "equippedWeaponWeight", {
             name: "Equipped Weapon & Armor Weight",
             hint: "How much weight equipped weapons and armor contribute to carried weight",
             scope: "world",
@@ -89,8 +153,8 @@ class WeightSystem {
             },
             default: "0.33"
         });
-		
-		game.settings.registerMenu(this.MODULE_ID, "compendiumClonerMenu", {
+
+        game.settings.registerMenu(MODULE_ID, "compendiumClonerMenu", {
             name: "Clone Compendium with Weights",
             label: "Open Cloner",
             hint: "Create a copy of a compendium with preset item weights applied.",
@@ -99,7 +163,7 @@ class WeightSystem {
             restricted: true
         });
 
-        game.settings.register(this.MODULE_ID, "showSyncButton", {
+        game.settings.register(MODULE_ID, "showSyncButton", {
             name: "Show Weight Sync Button",
             hint: "Display a button on character sheets to sync item weights from weighted compendiums and the Items Directory.",
             scope: "world",
@@ -108,16 +172,16 @@ class WeightSystem {
             default: false
         });
 
-        game.settings.register(this.MODULE_ID, "includeUpgradeWeight", {
-            name: "Include Upgrade Weight in Weapons",
-            hint: "When enabled, weapon attachments (itemUpgrades) add their weight to the parent weapon's total.",
+        game.settings.register(MODULE_ID, "includeUpgradeWeight", {
+            name: "Include Upgrade Weight",
+            hint: "When enabled, installed item upgrades (attachments) add their weight to the item they are installed in. When disabled, installed upgrades weigh nothing.",
             scope: "world",
             config: true,
             type: Boolean,
             default: true
         });
 
-        game.settings.register(this.MODULE_ID, "excludeOwnedItems", {
+        game.settings.register(MODULE_ID, "excludeOwnedItems", {
             name: "Exclude 'Owned' Items from Weight",
             hint: "Items marked as 'Owned' (not 'Equipped' or 'Carried') contribute zero weight and hide their weight display.",
             scope: "world",
@@ -126,14 +190,44 @@ class WeightSystem {
             default: false
         });
 
-        game.settings.register(this.MODULE_ID, "vehicleCargoCapacity", {
+        game.settings.register(MODULE_ID, "vehicleCargoCapacity", {
             name: "Vehicle Cargo Capacity",
             hint: "Maximum cargo capacity for vehicles. Only works with MMuton's CPR Vehicle Actor Sheet installed.",
             scope: "world",
             config: true,
             type: Number,
-            default: 20,
+            default: 10,
             range: { min: 10, max: 500, step: 10 }
+        });
+
+        game.settings.register(MODULE_ID, "showContainerNotifications", {
+            name: "Show Container Move Notifications",
+            hint: "Show a pop-up when an item is put into or taken out of a container. Warnings (wrong type, full, etc.) are always shown.",
+            scope: "world",
+            config: true,
+            type: Boolean,
+            default: false
+        });
+
+        game.settings.register(MODULE_ID, "groupContainerContents", {
+            name: "Group Items Under Their Container",
+            hint: "Show containers in their own Containers section on the Gear tab, with the items inside each one listed directly under it. When off, items stay in their normal categories and show a container marker instead. (Per user.)",
+            scope: "client",
+            config: true,
+            type: Boolean,
+            default: true,
+            onChange: () => {
+                for (const app of Object.values(ui.windows)) {
+                    if (app instanceof ActorSheet && app.rendered) app.render(false);
+                }
+            }
+        });
+
+        game.settings.register(MODULE_ID, "collapsedContainers", {
+            scope: "client",
+            config: false,
+            type: Object,
+            default: {}
         });
     }
 
@@ -141,927 +235,977 @@ class WeightSystem {
         Hooks.on("ready", this.onReady.bind(this));
         Hooks.on("renderActorSheet", this.onInitialRender.bind(this));
         Hooks.on("renderItemSheet", this.onRenderItemSheet.bind(this));
-        Hooks.on("createItem", this.onItemChange.bind(this));
-        Hooks.on("updateItem", this.onItemChange.bind(this));
-        Hooks.on("deleteItem", this.onItemChange.bind(this));
-        Hooks.on("dropActorSheetData", this.onItemChange.bind(this));
-    }
 
-    static addItemContextMenus(app, html, data) {
-        if (!game.settings.get(this.MODULE_ID, "enableWeightSystem")) return;
-        if (app.actor.type !== "character") return;
-
-        html.find('.item').each((index, element) => {
-            const $element = $(element);
-            
-            $element.off('contextmenu.weight-system').on('contextmenu.weight-system', (event) => {
-                event.preventDefault();
-                
-                const itemId = $element.data('item-id') || $element.data('document-id');
-                const item = app.actor.items.get(itemId);
-                
-                if (!item) return;
-                
-                const isContained = item.getFlag(this.MODULE_ID, "containedIn");
-                const containers = app.actor.items.filter(i => i.getFlag(this.MODULE_ID, "isContainer"));
-                
-                const menuItems = [];
-                
-                if (!isContained && containers.length > 0) {
-                    menuItems.push({
-                        icon: '<i class="fas fa-box"></i>',
-                        name: "Put in Container",
-                        callback: () => this.showContainerDialog(item)
-                    });
-                }
-                
-                if (isContained) {
-                    menuItems.push({
-                        icon: '<i class="fas fa-box-open"></i>',
-                        name: "Remove from Container",
-                        callback: () => this.removeFromContainer(item)
-                    });
-                }
-                
-                if (menuItems.length > 0) {
-                    const menuHtml = `
-                        <div class="weight-system-context-menu" style="
-                            position: fixed; 
-                            left: ${event.pageX}px; 
-                            top: ${event.pageY}px; 
-                            background: var(--cpr-background-chat-card-block, #52606d); 
-                            border: 1px solid var(--cpr-background-chat-border, #999999); 
-                            padding: 0;
-                            box-shadow: 0 2px 8px rgba(0,0,0,0.4);
-                            z-index: 10000;
-                            min-width: 180px;
-                            clip-path: polygon(0 0.5rem, 0 100%, 100% 100%, 100% 0, 0.5rem 0);
-                        ">
-                            ${menuItems.map(item => 
-                                `<div class="menu-item" data-action="${item.name}" style="
-                                    padding: 8px 12px; 
-                                    cursor: pointer; 
-                                    border-bottom: 1px solid var(--cpr-background-chat-card-block-before, #3b3b3b);
-                                    font-size: 13px;
-                                    color: var(--cpr-text-chat-normal, #eaeaea);
-                                    background: var(--cpr-background-chat-card-block-before, #3b3b3b);
-                                ">
-                                    ${item.icon} ${item.name}
-                                </div>`
-                            ).join('')}
-                        </div>
-                    `;
-                    
-                    $('.weight-system-context-menu').remove();
-                    $('body').append(menuHtml);
-                    
-                    $('.weight-system-context-menu .menu-item').on('click', function() {
-                        const action = $(this).data('action');
-                        const menuItem = menuItems.find(i => i.name === action);
-                        if (menuItem) menuItem.callback();
-                        $('.weight-system-context-menu').remove();
-                    });
-                    
-                    $('.weight-system-context-menu .menu-item').on('mouseenter', function() {
-                        $(this).css('background', 'var(--cpr-background-chat-card-block, #52606d)');
-                    }).on('mouseleave', function() {
-                        $(this).css('background', 'var(--cpr-background-chat-card-block-before, #3b3b3b)');
-                    });
-                    
-                    setTimeout(() => {
-                        $(document).one('click', () => $('.weight-system-context-menu').remove());
-                    }, 100);
-                }
-            });
+        Hooks.on("preCreateItem", this.onPreCreateItem.bind(this));
+        Hooks.on("createItem", (item, options) => this.onItemChange(item, null, options));
+        Hooks.on("updateItem", (item, changes, options, userId) => {
+            this.cleanupAfterItemUpdate(item, changes, userId);
+            this.onItemChange(item, changes, options);
+        });
+        Hooks.on("deleteItem", (item, options, userId) => {
+            this.cleanupAfterItemDelete(item, userId);
+            this.onItemChange(item, null, options);
         });
     }
 
-    static async showContainerDialog(item) {
-        if (!item.parent || item.parent.type !== "character") return;
+    static onReady() {
+        if (!game.settings.get(MODULE_ID, "enableWeightSystem")) return;
+        console.log("MMuton's Weight System | Ready and enabled");
+    }
 
-        const actor = item.parent;
-        
-        const itemTypeMap = {
-            "weapon": "weapon",
-            "armor": "armor", 
-            "gear": "gear",
-            "ammo": "ammo",
-            "cyberware": "cyberware",
-            "clothing": "clothing",
-            "cyberdeck": "cyberdeck",
-            "drug": "drug",
-            "upgrade": "upgrade",
-            "program": "program"
+    static readSettings() {
+        const multiplier = Number(game.settings.get(MODULE_ID, "equippedWeaponWeight"));
+        return {
+            equippedMultiplier: Number.isFinite(multiplier) ? multiplier : 1,
+            includeUpgradeWeight: game.settings.get(MODULE_ID, "includeUpgradeWeight"),
+            excludeOwned: game.settings.get(MODULE_ID, "excludeOwnedItems")
         };
-        
-        const mappedItemType = itemTypeMap[item.type] || item.type;
-        
-        const compatibleContainers = actor.items.filter(i => {
-            if (!i.getFlag(this.MODULE_ID, "isContainer") || i.id === item.id) return false;
-            
-            const containerData = i.getFlag(this.MODULE_ID, "containerData") || {};
-            const allowedTypes = containerData.allowedTypes || [];
-            
-            return allowedTypes.includes(mappedItemType);
-        });
+    }
 
-        if (compatibleContainers.length === 0) {
-            ui.notifications.warn(`No compatible containers found for ${item.type} items!`);
-            return;
+    static isContainer(item) {
+        return item?.getFlag(MODULE_ID, "isContainer") === true;
+    }
+
+    static isVehicleSheet(app, html) {
+        return html?.hasClass?.("vas-vehicle") || app?.constructor?.name === "VehicleSheet";
+    }
+
+    static normalizeIcon(icon) {
+        if (!icon) return "fa:box-open";
+        return String(icon).includes(":") ? String(icon) : `fa:${icon}`;
+    }
+
+    static itemCategory(item) {
+        return ITEM_TYPE_TO_CATEGORY[item.type] || item.type;
+    }
+
+    static getContainerData(container) {
+        const raw = container.getFlag(MODULE_ID, "containerData") || {};
+        const containerType = CONTAINER_TYPE_LABELS[raw.containerType] ? raw.containerType : "multi";
+        const reductionDefault = containerType === "multi" ? 1 : 0;
+        return {
+            containerType,
+            capacity: Math.max(0, num(raw.capacity, 50)),
+            weightReduction: Math.min(1, Math.max(0, num(raw.weightReduction, reductionDefault))),
+            allowedTypes: containerType === "multi" ? [...CONTAINER_CATEGORIES] : [containerType],
+            icon: this.normalizeIcon(raw.icon)
+        };
+    }
+
+    static getBaseWeight(item) {
+        return Math.max(0, num(item.getFlag(MODULE_ID, "weight")?.value, 0));
+    }
+
+    static getQuantity(item) {
+        return Math.max(0, num(item.system?.amount, 1));
+    }
+
+    static buildContext(actor, { vehicle = false } = {}) {
+        const items = actor.items;
+        const settings = this.readSettings();
+
+        const parentOf = new Map();
+        for (const item of items) {
+            const list = item.system?.installedItems?.list;
+            if (!Array.isArray(list)) continue;
+            for (const id of list) if (!parentOf.has(id)) parentOf.set(id, item.id);
         }
+        const actorInstalled = new Set(actor.system?.installedItems?.list ?? []);
 
-        const cancelButton = `
-            <button class="container-button cancel-button" style="
-                width: 100%; 
-                padding: 10px; 
-                margin-bottom: 8px; 
-                background: var(--cpr-color-red, #b90202); 
-                color: var(--cpr-color-white, #eaeaea); 
-                border: none; 
-                cursor: pointer;
-                font-size: 14px;
-                clip-path: polygon(0 0.5rem, 0 100%, 100% 100%, 100% 0, 0.5rem 0);
-            " data-action="cancel">Cancel</button>
-        `;
-        
-        const containerButtons = compatibleContainers.map(container => {
-            const containerData = container.getFlag(this.MODULE_ID, "containerData") || {};
-            const containerType = containerData.containerType || "multi";
-            const containerIcon = containerData.icon || "box-open";
-            const typeLabel = this.getContainerTypeLabel(containerType);
-            const isWeightless = containerData.weightReduction === 0.0;
-            const capacity = containerData.capacity || 50;
-            const currentWeight = this.getContainerContentsWeight(container);
-
-            return `
-                <button class="container-button" style="
-                    width: 100%;
-                    padding: 10px;
-                    margin-bottom: 4px;
-                    background: var(--cpr-background-chat-card-block, #52606d);
-                    color: var(--cpr-color-white, #eaeaea);
-                    border: none;
-                    cursor: pointer;
-                    font-size: 14px;
-                    text-align: left;
-                    display: flex;
-                    align-items: center;
-                    gap: 10px;
-                    clip-path: polygon(0 0.5rem, 0 100%, 100% 100%, 100% 0, 0.5rem 0);
-                " data-container-id="${container.id}">
-                    <span style="font-size: 18px; width: 22px; text-align: center;">
-                        ${this.renderContainerIcon(containerIcon)}
-                    </span>
-                    <span style="flex: 1 1 auto;">
-                        <div style="font-weight: bold;">${container.name}</div>
-                        <div style="font-size: 12px; color: var(--cpr-color-light-grey, #9e9f9f);">
-                            ${typeLabel}${isWeightless ? ' - <span style="color: var(--cpr-text-chat-success, #609040);">Weightless!</span>' : ''} | ${currentWeight.toFixed(1)}/${capacity} units
-                        </div>
-                    </span>
-                </button>
-            `;
-        }).join('');
-
-        const dialogContent = `
-            <div class="cpr-block" style="
-                background-color: var(--cpr-background-chat-card-block, #52606d);
-                position: relative;
-                display: flex;
-                flex-direction: column;
-                padding: 0.25rem;
-                clip-path: polygon(0 0.938rem, 0 100%, 100% 100%, 100% 0, 0.938rem 0);
-            ">
-                <div style="
-                    background-color: var(--cpr-background-chat-card-block-before, #3b3b3b);
-                    padding: 12px;
-                    clip-path: polygon(0 0.875rem, 0 100%, 100% 100%, 100% 0, 0.875rem 0);
-                ">
-                    <h3 style="margin: 0 0 8px 0; color: var(--cpr-color-white, #eaeaea); font-size: 16px;">
-                        Select Container for ${item.name}
-                    </h3>
-                    <p style="margin: 0 0 12px 0; color: var(--cpr-color-light-grey, #9e9f9f); font-size: 13px;">
-                        Moving <strong style="color: var(--cpr-color-white, #eaeaea);">${item.name}</strong> (${item.type}) into container...
-                    </p>
-                    ${cancelButton}
-                    ${containerButtons}
-                </div>
-            </div>
-        `;
-
-        const dialog = new Dialog({
-            title: "Put Item in Container",
-            content: dialogContent,
-            buttons: {},
-            render: (html) => {
-                html.closest('.dialog').css({
-                    'background': 'var(--cpr-background-chat-card, #232b2b)',
-                    'border': '1px solid var(--cpr-background-chat-border, #999999)'
-                });
-                html.closest('.dialog').find('.window-header').css({
-                    'background': 'var(--cpr-background-chat-card-block, #52606d)',
-                    'color': 'var(--cpr-color-white, #eaeaea)'
-                });
-                
-                html.find('.cancel-button').on('click', () => {
-                    dialog.close();
-                }).on('mouseenter', function() {
-                    $(this).css('filter', 'brightness(1.2)');
-                }).on('mouseleave', function() {
-                    $(this).css('filter', 'none');
-                });
-                
-                html.find('.container-button[data-container-id]').on('click', async (event) => {
-                    const containerId = $(event.currentTarget).data('container-id');
-                    await this.putItemInContainer(item, containerId);
-                    dialog.close();
-                }).on('mouseenter', function() {
-                    $(this).css('filter', 'brightness(1.3)');
-                }).on('mouseleave', function() {
-                    $(this).css('filter', 'none');
-                });
+        const containers = new Map();
+        for (const item of items) {
+            if (this.isContainer(item)) {
+                containers.set(item.id, { item, data: this.getContainerData(item), contents: [] });
             }
-        });
-        
-        dialog.render(true);
+        }
+
+        const ctx = { actor, vehicle, settings, parentOf, actorInstalled, containers, containedIn: new Map(), cache: new Map() };
+
+        for (const item of items) {
+            const containerId = item.getFlag(MODULE_ID, "containedIn");
+            if (!containerId || containerId === item.id) continue;
+            const container = containers.get(containerId);
+            if (!container || containers.has(item.id) || this.isInstalledNonAmmo(ctx, item)) continue;
+            ctx.containedIn.set(item.id, containerId);
+            container.contents.push(item);
+        }
+        return ctx;
     }
 
-    static async putItemInContainer(item, containerId) {
-        const container = item.parent.items.get(containerId);
-        if (!container) {
-            ui.notifications.error("Container not found!");
-            return;
-        }
+    static isInstalled(ctx, item) {
+        return ctx.actorInstalled.has(item.id) || ctx.parentOf.has(item.id);
+    }
 
-        const containerData = container.getFlag(this.MODULE_ID, "containerData") || {};
-        const itemWeight = this.getItemWeight(item);
+    static isInstalledNonAmmo(ctx, item) {
+        return item.type !== "ammo" && this.isInstalled(ctx, item);
+    }
 
-        const currentContentsWeight = this.getContainerContentsWeight(container);
-        if (currentContentsWeight + itemWeight > (containerData.capacity || 50)) {
-            ui.notifications.warn(`Container capacity exceeded! (${currentContentsWeight + itemWeight}/${containerData.capacity || 50} kg)`);
-            return;
-        }
+    static computeItem(ctx, item) {
+        const cached = ctx.cache.get(item.id);
+        if (cached) return cached;
 
-        const containerType = containerData.containerType || "multi";
-        const allowedTypes = containerData.allowedTypes || [];
-        
-        const itemTypeMap = {
-            "weapon": "weapon",
-            "armor": "armor", 
-            "gear": "gear",
-            "ammo": "ammo",
-            "cyberware": "cyberware",
-            "clothing": "clothing",
-            "cyberdeck": "cyberdeck",
-            "drug": "drug",
-            "upgrade": "upgrade",
-            "program": "program"
-        };
-        
-        const mappedItemType = itemTypeMap[item.type] || item.type;
-        
-        if (!allowedTypes.includes(mappedItemType)) {
-            const containerTypeLabel = this.getContainerTypeLabel(containerType);
-            ui.notifications.warn(`This ${containerTypeLabel} cannot hold ${item.type} items!`);
-            return;
-        }
+        const { settings } = ctx;
+        const base = this.getBaseWeight(item);
+        const qty = this.getQuantity(item);
+        const reasons = [];
+        let unit = base;
+        let hidden = base <= 0;
 
-        await item.setFlag(this.MODULE_ID, "containedIn", containerId);
-        
-        const containerTypeLabel = this.getContainerTypeLabel(containerType);
-        if (containerType !== "multi" && containerData.weightReduction === 0.0) {
-            ui.notifications.info(`${item.name} put into ${container.name} (${containerTypeLabel} - weightless!)`);
+        if (NON_PHYSICAL_TYPES.has(item.type)) {
+            unit = 0;
+            hidden = true;
+        } else if (ctx.vehicle) {
+            unit = this.applyVehicleRules(ctx, item, base, reasons);
+        } else if (settings.excludeOwned && item.system?.equipped === "owned") {
+            unit = 0;
+            hidden = true;
+        } else if (item.type === "cyberware" && this.isInstalled(ctx, item)) {
+            unit = 0;
+            reasons.push("Installed (weightless)");
+        } else if (item.type === "itemUpgrade" && ctx.parentOf.has(item.id)) {
+            const parent = ctx.actor.items.get(ctx.parentOf.get(item.id));
+            unit = 0;
+            hidden = false;
+            reasons.push(settings.includeUpgradeWeight
+                ? `Installed in ${parent?.name || "item"} (counted there)`
+                : `Installed in ${parent?.name || "item"}`);
+        } else if (item.type === "clothing" && item.system?.equipped === "equipped") {
+            unit = 0;
+            reasons.push("Worn (weightless)");
         } else {
-            ui.notifications.info(`${item.name} put into ${container.name}`);
+            if (settings.includeUpgradeWeight) {
+                const upgrade = this.getInstalledUpgradeWeight(ctx, item);
+                if (upgrade.total !== 0) {
+                    unit = Math.max(0, unit + upgrade.total);
+                    reasons.push(`${upgrade.total > 0 ? "+" : ""}${fmt(upgrade.total)}u from: ${upgrade.names.join(", ")}`);
+                    hidden = false;
+                }
+            }
+            if ((item.type === "weapon" || item.type === "armor") && item.system?.equipped === "equipped") {
+                const m = settings.equippedMultiplier;
+                if (m !== 1) {
+                    unit = unit * m;
+                    reasons.push(`Equipped (${EQUIPPED_LABELS[m] ?? `×${m}`})`);
+                }
+            }
         }
 
-        const sheet = item.parent.sheet;
-        if (sheet && sheet.rendered) {
-            setTimeout(() => sheet.render(false), 100);
+        const carried = unit * qty;
+
+        const containerId = ctx.containedIn.get(item.id);
+        if (containerId) {
+            const container = ctx.containers.get(containerId);
+            const reduction = container.data.weightReduction;
+            if (reduction !== 1) {
+                unit = unit * reduction;
+                reasons.push(reduction === 0
+                    ? `in ${container.item.name} (weightless)`
+                    : `in ${container.item.name} (${Math.round(reduction * 100)}% weight)`);
+            }
         }
+
+        const result = { base, qty, unit, carried, total: unit * qty, reasons, hidden };
+        ctx.cache.set(item.id, result);
+        return result;
     }
 
-	static renderContainerIcon(iconValue) {
-			if (!iconValue) iconValue = "fa:box-open";
-			if (!iconValue.includes(":")) iconValue = `fa:${iconValue}`;
-			
-			const [type, name] = iconValue.split(":");
-			if (type === "wa") {
-				return `<wa-icon name="${name}"></wa-icon>`;
-			}
-			return `<i class="fas fa-${name}"></i>`;
-		}
+    static getInstalledUpgradeWeight(ctx, item) {
+        const list = item.system?.installedItems?.list;
+        let total = 0;
+        const names = [];
+        if (!Array.isArray(list)) return { total, names };
+        for (const id of list) {
+            const installed = ctx.actor.items.get(id);
+            if (installed?.type !== "itemUpgrade") continue;
+            const upgradeData = installed.getFlag(MODULE_ID, "upgradeData") || {};
+            let add = 0;
+            if (!upgradeData.weightlessWhenAttached) add += this.getBaseWeight(installed) * this.getQuantity(installed);
+            add += num(upgradeData.additionalWeight, 0);
+            if (add !== 0) {
+                total += add;
+                names.push(installed.name);
+            }
+        }
+        return { total, names };
+    }
 
-    static getContainerTypeLabel(containerType) {
-        const typeLabels = {
-            "multi": "Multi-Functional Container",
-            "ammo": "Ammo Container",
-            "armor": "Armor Container", 
-            "clothing": "Clothing Container",
-            "cyberdeck": "Cyberdeck Container",
-            "cyberware": "Cyberware Container",
-            "drug": "Drug Container",
-            "gear": "Gear Container",
-            "upgrade": "Upgrade Container",
-            "program": "Program Container",
-            "weapon": "Weapon Container"
+    static applyVehicleRules(ctx, item, base, reasons) {
+        if (item.type === "cyberware" && item.getFlag(VAS_ID, "installed")) {
+            reasons.push("Installed (weightless)");
+            return 0;
+        }
+        if (item.type === "itemUpgrade" && item.getFlag(VAS_ID, "mounted")) {
+            reasons.push("Mounted (weightless)");
+            return 0;
+        }
+        if (item.type === "weapon" && item.getFlag(VAS_ID, "mountedPosition")) {
+            const m = ctx.settings.equippedMultiplier;
+            if (m !== 1) {
+                reasons.push(`Mounted (${EQUIPPED_LABELS[m] ?? `×${m}`})`);
+                return base * m;
+            }
+        }
+        return base;
+    }
+
+    static containerLoad(ctx, containerId, excludeItemId = null) {
+        const container = ctx.containers.get(containerId);
+        if (!container) return 0;
+        let load = 0;
+        for (const item of container.contents) {
+            if (item.id !== excludeItemId) load += this.computeItem(ctx, item).carried;
+        }
+        return load;
+    }
+
+    static sumActorWeight(ctx) {
+        let total = 0;
+        for (const item of ctx.actor.items) total += this.computeItem(ctx, item).total;
+        return total;
+    }
+
+    static toWeightData(total, max, extra = {}) {
+        const percentage = max > 0 ? (total / max) * 100 : (total > 0 ? 999 : 0);
+        return {
+            current: round1(total),
+            max: round1(max),
+            percentage: Math.round(percentage),
+            status: percentage > 100 ? "overweight" : "normal",
+            ...extra
         };
-        
-        return typeLabels[containerType] || "Container";
     }
 
-    static async recalculateWeightsFromDirectory(actor) {
-        const updatedItems = new Map();
-        let compendiumMatches = 0;
-        let directoryMatches = 0;
+    static async calculateActorWeight(actor, ctx = null) {
+        return this.calculateActorWeightSync(actor, ctx);
+    }
 
-        ui.notifications.info("Syncing weights...");
+    static calculateActorWeightSync(actor, ctx = null) {
+        ctx ??= this.buildContext(actor);
+        return this.toWeightData(this.sumActorWeight(ctx), this.calculateMaxWeight(actor, ctx));
+    }
 
-        const weightedPacks = game.packs.filter(p => 
-            p.metadata.type === "Item" && p.metadata.label.includes("(Weighted)")
-        );
-
-        for (const pack of weightedPacks) {
-            const packItems = await pack.getDocuments();
-            for (const actorItem of actor.items) {
-                const matchingItem = packItems.find(i => i.name === actorItem.name);
-                if (matchingItem) {
-                    const weight = matchingItem.getFlag(this.MODULE_ID, "weight");
-                    if (weight && weight.value > 0) {
-                        updatedItems.set(actorItem.id, { item: actorItem, weight: weight.value, source: "compendium" });
-                        compendiumMatches++;
-                    }
-                }
-            }
-        }
-
-        for (const actorItem of actor.items) {
-            const directoryItem = game.items.find(item => item.name === actorItem.name);
-            if (directoryItem) {
-                const weight = directoryItem.getFlag(this.MODULE_ID, "weight");
-                if (weight && weight.value > 0) {
-                    updatedItems.set(actorItem.id, { item: actorItem, weight: weight.value, source: "directory" });
-                    directoryMatches++;
-                }
-            }
-        }
-
-        let appliedCount = 0;
-        for (const [id, data] of updatedItems) {
-            await data.item.setFlag(this.MODULE_ID, "weight", { value: data.weight });
-            appliedCount++;
-            console.log(`Weight System: ${data.item.name} = ${data.weight} (from ${data.source})`);
-        }
-
-        if (appliedCount > 0) {
-            ui.notifications.info(`Synced ${appliedCount} item weights.`);
-            const sheet = actor.sheet;
-            if (sheet && sheet.rendered) {
-                setTimeout(() => sheet.render(false), 100);
-            }
+    static calculateMaxWeight(actor, ctx = null) {
+        let baseCapacity;
+        if (game.settings.get(MODULE_ID, "capacityCalculation") === "custom") {
+            baseCapacity = game.settings.get(MODULE_ID, "customCapacity");
         } else {
-            ui.notifications.warn("No matching items found in weighted compendiums or Items Directory.");
+            const body = actor.system.stats?.body?.value ?? 10;
+            baseCapacity = body * game.settings.get(MODULE_ID, "baseWeightMultiplier");
         }
-
-        console.log(`Weight System: Sync complete. Compendium matches: ${compendiumMatches}, Directory matches: ${directoryMatches}, Total applied: ${appliedCount}`);
+        return baseCapacity + this.getCapacityBonus(actor, ctx);
     }
 
-    static async removeFromContainer(item) {
-        const containerId = item.getFlag(this.MODULE_ID, "containedIn");
-        const container = item.parent?.items.get(containerId);
-        
-        await item.unsetFlag(this.MODULE_ID, "containedIn");
-        ui.notifications.info(`${item.name} removed from ${container?.name || "container"}`);
-
-        const sheet = item.parent?.sheet;
-        if (sheet && sheet.rendered) {
-            setTimeout(() => sheet.render(false), 100);
+    static getCapacityBonus(actor, ctx = null) {
+        ctx ??= this.buildContext(actor);
+        let bonus = 0;
+        for (const item of actor.items) {
+            if (item.type !== "cyberware" || !this.isInstalled(ctx, item)) continue;
+            const value = num(item.getFlag(MODULE_ID, "capacityBonus")?.value, 0);
+            if (value > 0) bonus += value;
         }
+        return bonus;
+    }
+
+    static async calculateVehicleWeight(actor) {
+        return this.calculateVehicleWeightSync(actor);
+    }
+
+    static calculateVehicleWeightSync(actor, ctx = null) {
+        ctx ??= this.buildContext(actor, { vehicle: true });
+        const perVehicleCap = actor.getFlag(MODULE_ID, "vehicleCapacity");
+        const baseWeight = Number.isFinite(perVehicleCap)
+            ? perVehicleCap
+            : (game.settings.get(MODULE_ID, "vehicleCargoCapacity") ?? 10);
+        const capacityBonus = this.getVehicleCapacityBonus(actor);
+        return this.toWeightData(this.sumActorWeight(ctx), baseWeight + capacityBonus, { base: baseWeight, bonus: capacityBonus });
+    }
+
+    static getVehicleCapacityBonus(actor) {
+        let bonus = 0;
+        for (const item of actor.items) {
+            const active = (item.type === "cyberware" && item.getFlag(VAS_ID, "installed"))
+                || (item.type === "itemUpgrade" && item.getFlag(VAS_ID, "mounted"));
+            if (!active) continue;
+            const value = num(item.getFlag(MODULE_ID, "capacityBonus")?.value, 0);
+            if (value > 0) bonus += value;
+        }
+        return bonus;
+    }
+
+    static getItemWeight(item) {
+        if (!item.parent) return this.getBaseWeight(item) * this.getQuantity(item);
+        return this.computeItem(this.buildContext(item.parent), item).carried;
     }
 
     static getContainerContentsWeight(container) {
         if (!container.parent) return 0;
-
-        const containedItems = container.parent.items.filter(item => 
-            item.getFlag(this.MODULE_ID, "containedIn") === container.id
-        );
-
-        return containedItems.reduce((total, item) => total + this.getItemWeight(item), 0);
+        return this.containerLoad(this.buildContext(container.parent), container.id);
     }
 
-    static updateTimeouts = new Map();
-    static notificationCooldowns = new Map();
-    static itemActiveTabs = new Map();
-
-    static onReady() {
-        if (!game.settings.get(this.MODULE_ID, "enableWeightSystem")) return;
-        console.log("MMuton's Weight System | Ready and enabled");
-    }
-
-    static async onInitialRender(app, html, data) {
-        if (!game.settings.get(this.MODULE_ID, "enableWeightSystem")) return;
-        if (app.actor.type !== "character") return;
-        
-        const isVehicleSheet = html.hasClass('vas-vehicle') || app.constructor.name === 'VehicleSheet';
-        if (isVehicleSheet) {
-            await this.onRenderVehicleSheet(app, html, data);
-            return;
-        }
-        
-        await this.addWeightDisplay(app, html, data);
-        this.addItemContextMenus(app, html, data);
-    }
-
-    static scheduleWeightUpdate(actor) {
-        const existing = this.updateTimeouts.get(actor.id);
-        if (existing) clearTimeout(existing);
-        
-        this.updateTimeouts.set(actor.id, setTimeout(async () => {
-            const sheet = actor.sheet;
-            if (sheet && sheet.rendered) {
-                const isVehicleSheet = sheet.element.hasClass('vas-vehicle') || sheet.constructor.name === 'VehicleSheet';
-                if (isVehicleSheet) {
-                    await this.updateVehicleWeightDisplayOnly(actor, sheet.element);
-                } else {
-                    await this.updateWeightDisplayOnly(actor, sheet.element);
-                }
-            }
-            this.updateTimeouts.delete(actor.id);
-        }, 50));
-    }
-
-    static async updateWeightDisplayOnly(actor, html) {
-        const weightData = await this.calculateActorWeight(actor);
-        const containerInfo = this.getContainerInfo(actor);
-        
-        const existingDisplay = html.find('.weight-system-container');
-        if (existingDisplay.length > 0) {
-            const capacityText = existingDisplay.find('span').last();
-            capacityText.text(`${weightData.current}/${weightData.max} units`);
-            capacityText.css('color', weightData.status === 'overweight' ? 'red' : 'inherit');
-            
-            const progressBar = existingDisplay.find('.weight-fill');
-            const barColor = this.getWeightBarColor(weightData.percentage);
-            progressBar.css({
-                'width': `${Math.min(weightData.percentage, 100)}%`,
-                'background': barColor
-            });
-            
-            const warningDiv = existingDisplay.find('div:contains("OVERWEIGHT!")');
-            if (weightData.status === 'overweight' && warningDiv.length === 0) {
-                existingDisplay.find('.weight-display').append('<div style="color: red; font-size: 12px; font-weight: bold;">⚠️ OVERWEIGHT!</div>');
-                
-                if (!this.isNotificationOnCooldown(actor.id)) {
-                    ui.notifications.warn(`${actor.name} is carrying too much weight! (${weightData.current}/${weightData.max} units)`);
-                    this.setNotificationCooldown(actor.id);
-                }
-            } else if (weightData.status !== 'overweight' && warningDiv.length > 0) {
-                warningDiv.remove();
-                this.clearNotificationCooldown(actor.id);
-            }
-            
-            this.addInlineWeights(html, actor);
-            this.addItemContainerIndicators(html, actor);
-        }
-    }
-	
-	static async updateVehicleWeightDisplayOnly(actor, html) {
-        const weightData = await this.calculateVehicleWeight(actor);
-        
-        const existingDisplay = html.find('.weight-system-container.vehicle-weight');
-        if (existingDisplay.length > 0) {
-            const capacityText = existingDisplay.find('.vehicle-weight-text');
-            capacityText.html(this._vehicleCapText(weightData));
-            capacityText.css('color', weightData.status === 'overweight' ? '#de453b' : 'inherit');
-            this._bindVehicleCapEdit(actor, existingDisplay);
-            
-            const progressBar = existingDisplay.find('.weight-fill');
-            let barColor = '#52606d';
-            if (weightData.percentage >= 39 && weightData.percentage < 69) {
-                barColor = '#fbcc76';
-            } else if (weightData.percentage >= 69) {
-                barColor = '#de453b';
-            }
-            progressBar.css({
-                'width': `${Math.min(weightData.percentage, 100)}%`,
-                'background': barColor
-            });
-            
-            const warningDiv = existingDisplay.find('div:contains("OVERLOADED!")');
-            if (weightData.status === 'overweight' && warningDiv.length === 0) {
-                existingDisplay.append('<div style="color: #de453b; font-size: 12px; font-weight: bold; margin-top: 4px;">⚠️ OVERLOADED!</div>');
-            } else if (weightData.status !== 'overweight' && warningDiv.length > 0) {
-                warningDiv.remove();
-            }
-            
-            this.addVehicleInlineWeights(html, actor);
-            this.addVehicleWeaponsArmorInlineWeights(html, actor);
-            this.addVehicleContainerIndicators(html, actor);
-        }
+    static async calculateContainerWeight(container, actor) {
+        const ctx = this.buildContext(actor);
+        const own = this.computeItem(ctx, container).total;
+        const entry = ctx.containers.get(container.id);
+        if (!entry) return own;
+        return own + entry.contents.reduce((sum, item) => sum + this.computeItem(ctx, item).total, 0);
     }
 
     static getWeightBarColor(percentage) {
-        if (percentage >= 69) return '#de453b';
-        if (percentage >= 39) return '#fbcc76';
-        return '#52606d';
+        if (percentage >= 69) return "#de453b";
+        if (percentage >= 39) return "#fbcc76";
+        return "#52606d";
     }
 
-    static isNotificationOnCooldown(actorId) {
-        const cooldownTime = this.notificationCooldowns.get(actorId);
-        if (!cooldownTime) return false;
-        
-        const now = Date.now();
-        const cooldownDuration = 30000;
-        return (now - cooldownTime) < cooldownDuration;
+    static getContainerTypeLabel(containerType) {
+        return CONTAINER_TYPE_LABELS[containerType] || "Container";
     }
 
-    static setNotificationCooldown(actorId) {
-        this.notificationCooldowns.set(actorId, Date.now());
+    static renderContainerIcon(iconValue) {
+        const [type, name] = this.normalizeIcon(iconValue).split(":");
+        const safe = esc(name);
+        if (type === "wa") return `<wa-icon name="${safe}"></wa-icon>`;
+        return `<i class="fas fa-${safe}"></i>`;
     }
 
-    static clearNotificationCooldown(actorId) {
-        this.notificationCooldowns.delete(actorId);
-    }
-
-    static async addWeightDisplay(app, html, data) {
-        const actor = app.actor;
-        const weightData = await this.calculateActorWeight(actor);
-        
-        html.find('.weight-system-container').remove();
-        
-        const containerInfo = this.getContainerInfo(actor);
-        
-        let barColor = '#52606d'; 
-        if (weightData.percentage >= 39 && weightData.percentage < 69) {
-            barColor = '#fbcc76'; 
-        } else if (weightData.percentage >= 69) {
-            barColor = '#de453b'; 
+    static canPutInContainer(ctx, item, container) {
+        const entry = ctx.containers.get(container.id);
+        if (!entry) return { ok: false, reason: `${container.name} is not a container.` };
+        if (item.id === container.id) return { ok: false, reason: "An item can't be put inside itself." };
+        if (this.isContainer(item)) return { ok: false, reason: "Containers can't be put inside other containers." };
+        if (this.isInstalledNonAmmo(ctx, item)) return { ok: false, reason: `${item.name} is installed and can't be stored in a container.` };
+        if (!entry.data.allowedTypes.includes(this.itemCategory(item))) {
+            return { ok: false, reason: `This ${this.getContainerTypeLabel(entry.data.containerType)} cannot hold ${item.type} items!` };
         }
-        
-        const weightHtml = `
-            <div class="weight-system-container" style="margin: 8px 0; clear: both;">
-                <div class="weight-display ${weightData.status}" style="
-                    position: relative;
-                    padding: 6px; 
-                    border-radius: 4px; 
-                    background: ${weightData.status === 'overweight' ? 'rgba(255, 0, 0, 0.2)' : 'rgba(0, 0, 0, 0.1)'};
-                    border-left: none !important;
-                ">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <span><strong>Capacity:</strong></span>
-                        <span style="color: ${weightData.status === 'overweight' ? 'red' : 'inherit'}; font-weight: bold;">
-                            ${weightData.current}/${weightData.max} units
-                        </span>
-                    </div>
-                    <div class="weight-bar" style="
-                        height: 8px; 
-                        background: rgba(0, 0, 0, 0.2); 
-                        border-radius: 4px; 
-                        overflow: hidden; 
-                        margin: 4px 0;
-                    ">
-                        <div class="weight-fill" style="
-                            height: 100%; 
-                            width: ${Math.min(weightData.percentage, 100)}%;
-                            background: ${barColor};
-                            transition: all 0.3s ease;
-                        "></div>
-                    </div>
-                    ${weightData.status === 'overweight' ? 
-                        '<div style="color: red; font-size: 12px; font-weight: bold;">OVERWEIGHT!</div>' : ''}
-                    ${game.settings.get(this.MODULE_ID, "showSyncButton") ? 
-                        '<button type="button" class="weight-recalculate-btn" title="Sync weights from compendiums and Items Directory" style="position: absolute; top: 6px; left: 50%; transform: translateX(-50%); width: 20px; height: 20px; background: none; border: none; cursor: pointer; color: #fff; font-size: 12px; padding: 0; line-height: 1;">' +
-                            '<i class="fa-solid fa-rotate"></i>' +
-                        '</button>' : ''}
-                </div>
-            </div>
-        `;
-        
-        const gearTab = html.find('.tab[data-tab="gear"]');
-        if (gearTab.length > 0) {
-            gearTab.prepend(weightHtml);
-            
-            this.addInlineWeights(html, actor);
-            this.addItemContainerIndicators(html, actor);
-            
-            html.find('.weight-recalculate-btn').on('click', () => {
-                this.recalculateWeightsFromDirectory(actor);
-            });
-            
-            if (weightData.status === 'overweight' && !html.find('.weight-system-container').data('warning-shown')) {
-                html.find('.weight-system-container').data('warning-shown', true);
-                
-                if (!this.isNotificationOnCooldown(actor.id)) {
-                    ui.notifications.warn(`${actor.name} is carrying too much weight! (${weightData.current}/${weightData.max} units)`);
-                    this.setNotificationCooldown(actor.id);
-                }
+        const load = this.containerLoad(ctx, container.id, item.id);
+        const itemWeight = this.computeItem(ctx, item).carried;
+        if (load + itemWeight > entry.data.capacity + 1e-9) {
+            return { ok: false, reason: `Container capacity exceeded! (${fmt(load + itemWeight)}/${fmt(entry.data.capacity)} units)` };
+        }
+        return { ok: true };
+    }
+
+    static getCompatibleContainers(ctx, item) {
+        const current = ctx.containedIn.get(item.id);
+        const result = [];
+        for (const [id, entry] of ctx.containers) {
+            if (id === item.id || id === current) continue;
+            if (!entry.data.allowedTypes.includes(this.itemCategory(item))) continue;
+            if (this.isContainer(item) || this.isInstalledNonAmmo(ctx, item)) continue;
+            result.push(entry.item);
+        }
+        return result.sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    static async putItemInContainer(item, containerId) {
+        const actor = item.parent;
+        if (!actor) return false;
+        const container = actor.items.get(containerId);
+        if (!container) {
+            ui.notifications.error("Container not found!");
+            return false;
+        }
+
+        const ctx = this.buildContext(actor, { vehicle: this.isVehicleSheet(actor.sheet, actor.sheet?.element) });
+        const check = this.canPutInContainer(ctx, item, container);
+        if (!check.ok) {
+            ui.notifications.warn(check.reason);
+            return false;
+        }
+
+        await item.setFlag(MODULE_ID, "containedIn", containerId);
+
+        if (game.settings.get(MODULE_ID, "showContainerNotifications")) {
+            const data = ctx.containers.get(containerId).data;
+            if (data.containerType !== "multi" && data.weightReduction === 0) {
+                ui.notifications.info(`${item.name} put into ${container.name} (${this.getContainerTypeLabel(data.containerType)} - weightless!)`);
+            } else {
+                ui.notifications.info(`${item.name} put into ${container.name}`);
             }
         }
+        return true;
     }
 
-static addInlineWeights(html, actor) {
+    static async removeFromContainer(item) {
+        const containerId = item.getFlag(MODULE_ID, "containedIn");
+        const container = item.parent?.items.get(containerId);
+        await item.unsetFlag(MODULE_ID, "containedIn");
+        if (game.settings.get(MODULE_ID, "showContainerNotifications")) {
+            ui.notifications.info(`${item.name} removed from ${container?.name || "container"}`);
+        }
+    }
+
+    static async showContainerDialog(item) {
+        const actor = item.parent;
+        if (!actor) return;
+
+        const vehicle = this.isVehicleSheet(actor.sheet, actor.sheet?.element);
+        const ctx = this.buildContext(actor, { vehicle });
+        const compatible = this.getCompatibleContainers(ctx, item);
+
+        if (compatible.length === 0) {
+            ui.notifications.warn(`No compatible containers found for ${item.type} items!`);
+            return;
+        }
+
+        const containerButtons = compatible.map(container => {
+            const data = ctx.containers.get(container.id).data;
+            const isWeightless = data.weightReduction === 0;
+            const load = this.containerLoad(ctx, container.id);
+            return `
+                <button type="button" class="ws-dialog-button" data-container-id="${esc(container.id)}">
+                    <span class="ws-dialog-icon">${this.renderContainerIcon(data.icon)}</span>
+                    <span class="ws-dialog-text">
+                        <div class="ws-dialog-name">${esc(container.name)}</div>
+                        <div class="ws-dialog-sub">
+                            ${esc(this.getContainerTypeLabel(data.containerType))}${isWeightless ? ' - <span class="ws-weightless">Weightless!</span>' : ""} | ${fmt(load)}/${fmt(data.capacity)} units
+                        </div>
+                    </span>
+                </button>`;
+        }).join("");
+
+        const content = `
+            <div class="ws-dialog-outer">
+                <div class="ws-dialog-inner">
+                    <h3 class="ws-dialog-title">Select Container for ${esc(item.name)}</h3>
+                    <p class="ws-dialog-desc">Moving <strong>${esc(item.name)}</strong> (${esc(item.type)}) into container...</p>
+                    <button type="button" class="ws-dialog-button ws-dialog-cancel">Cancel</button>
+                    ${containerButtons}
+                </div>
+            </div>`;
+
+        const dialog = new Dialog({
+            title: "Put Item in Container",
+            content,
+            buttons: {},
+            render: (html) => {
+                html.closest(".dialog").addClass("ws-container-dialog");
+                html.find(".ws-dialog-cancel").on("click", () => dialog.close());
+                html.find(".ws-dialog-button[data-container-id]").on("click", async (event) => {
+                    const containerId = event.currentTarget.dataset.containerId;
+                    dialog.close();
+                    await this.putItemInContainer(item, containerId);
+                });
+            }
+        });
+        dialog.render(true);
+    }
+
+    static closeContextMenu() {
+        $(".weight-system-context-menu").remove();
+        $(document).off(".ws-menu");
+    }
+
+    static bindContextMenu(rows, actor) {
+        rows.off("contextmenu.weight-system").on("contextmenu.weight-system", (event) => {
+            const row = event.currentTarget;
+            if (event.target.closest?.("li.item, .item") !== row) return;
+            const item = actor.items.get(row.dataset.itemId || row.dataset.documentId);
+            if (!item) return;
+
+            const vehicle = this.isVehicleSheet(actor.sheet, actor.sheet?.element);
+            const ctx = this.buildContext(actor, { vehicle });
+            const menuItems = [];
+            if (this.getCompatibleContainers(ctx, item).length > 0) {
+                menuItems.push({
+                    icon: "fa-box",
+                    name: ctx.containedIn.has(item.id) ? "Move to Another Container" : "Put in Container",
+                    callback: () => this.showContainerDialog(item)
+                });
+            }
+            if (ctx.containedIn.has(item.id)) {
+                menuItems.push({ icon: "fa-box-open", name: "Remove from Container", callback: () => this.removeFromContainer(item) });
+            }
+            if (menuItems.length === 0) return;
+
+            event.preventDefault();
+            event.stopPropagation();
+            this.closeContextMenu();
+
+            const menu = $(`<div class="weight-system-context-menu">${menuItems.map((m, i) =>
+                `<div class="menu-item" data-index="${i}"><i class="fas ${m.icon}"></i> ${esc(m.name)}</div>`).join("")}</div>`);
+            menu.css({ left: `${event.clientX}px`, top: `${event.clientY}px` });
+            $("body").append(menu);
+
+            menu.find(".menu-item").on("click", (e) => {
+                const entry = menuItems[Number(e.currentTarget.dataset.index)];
+                this.closeContextMenu();
+                entry?.callback();
+            });
+
+            setTimeout(() => {
+                $(document)
+                    .on("mousedown.ws-menu", (e) => { if (!$(e.target).closest(".weight-system-context-menu").length) this.closeContextMenu(); })
+                    .on("keydown.ws-menu", (e) => { if (e.key === "Escape") this.closeContextMenu(); })
+                    .on("wheel.ws-menu", () => this.closeContextMenu());
+            }, 0);
+        });
+    }
+
+    static addItemContextMenus(app, html) {
+        if (!game.settings.get(MODULE_ID, "enableWeightSystem")) return;
+        const gearTab = html.find('.tab[data-tab="gear"]');
+        this.bindContextMenu(gearTab.find("li.item[data-item-id]"), app.actor);
+    }
+
+    static addVehicleItemContextMenus(app, html, actor) {
+        const cargoTab = html.find('.tab[data-tab="cargo"]');
+        if (cargoTab.length === 0) return;
+        this.bindContextMenu(cargoTab.find(".item[data-item-id]"), actor);
+    }
+
+    static async onInitialRender(app, html, data) {
+        if (!game.settings.get(MODULE_ID, "enableWeightSystem")) return;
+        const actor = app.actor;
+        if (!actor) return;
+
+        if (this.isVehicleSheet(app, html)) {
+            await this.onRenderVehicleSheet(app, html, data);
+            return;
+        }
+        if (actor.type !== "character") return;
+
         const gearTab = html.find('.tab[data-tab="gear"]');
         if (gearTab.length === 0) return;
-        
-        gearTab.find('.item-detail.gear-data.text-nowrap').each(function() {
-            const $this = $(this);
-            const text = $this.text();
-            const cleanedText = text.replace(/^[\d.]+u\s+/, '');
-            if (cleanedText !== text) {
-                $this.text(cleanedText);
-            }
+
+        const ctx = this.buildContext(actor);
+        const weightData = this.calculateActorWeightSync(actor, ctx);
+
+        this.renderWeightDisplay(gearTab, actor, weightData);
+        if (game.settings.get(MODULE_ID, "groupContainerContents")) this.buildContainersSection(gearTab, ctx);
+        this.applyInlineWeights(gearTab, ctx);
+        this.applyContainerIndicators(gearTab, ctx);
+        this.bindContainerDragDrop(gearTab, actor, app);
+        this.addItemContextMenus(app, html);
+        this.maybeNotifyOverweight(actor, weightData);
+    }
+
+    static async addWeightDisplay(app, html) {
+        const gearTab = html.find('.tab[data-tab="gear"]');
+        if (gearTab.length === 0) return;
+        this.renderWeightDisplay(gearTab, app.actor, this.calculateActorWeightSync(app.actor));
+    }
+
+    static renderWeightDisplay(gearTab, actor, weightData) {
+        let container = gearTab.find(".weight-system-container").first();
+        if (container.length === 0) {
+            const syncButton = game.settings.get(MODULE_ID, "showSyncButton")
+                ? '<button type="button" class="weight-recalculate-btn" data-tooltip="Sync weights from compendiums and Items Directory"><i class="fa-solid fa-rotate"></i></button>'
+                : "";
+            container = $(`
+                <div class="weight-system-container">
+                    <div class="weight-display">
+                        <div class="ws-display-row">
+                            <span><strong>Capacity:</strong></span>
+                            <span class="ws-capacity-text"></span>
+                        </div>
+                        <div class="weight-bar"><div class="weight-fill"></div></div>
+                        <div class="ws-overweight-warning">⚠️ OVERWEIGHT!</div>
+                        ${syncButton}
+                    </div>
+                </div>`);
+            gearTab.prepend(container);
+            container.find(".weight-recalculate-btn").on("click", () => this.recalculateWeightsFromDirectory(actor));
+        }
+
+        const overweight = weightData.status === "overweight";
+        container.find(".weight-display").toggleClass("overweight", overweight);
+        container.find(".ws-capacity-text").text(`${weightData.current}/${weightData.max} units`);
+        container.find(".weight-fill").css({
+            width: `${Math.min(weightData.percentage, 100)}%`,
+            background: this.getWeightBarColor(weightData.percentage)
         });
-        
-        const items = actor.items;
-        const equippedSetting = game.settings.get(this.MODULE_ID, "equippedWeaponWeight");
-        const equippedMultiplier = Number(equippedSetting);
-        const includeUpgradeWeight = game.settings.get(this.MODULE_ID, "includeUpgradeWeight");
-        
-        items.forEach(item => {
-            const itemRow = gearTab.find(`[data-item-id="${item.id}"]`).closest('.item');
-            
-            if (itemRow.length > 0) {
-                const weightData = item.getFlag(this.MODULE_ID, "weight") || { value: 0 };
-                const baseWeight = weightData.value || 0;
-                
-                const isInstalledUpgrade = item.type === "itemUpgrade" && item.system.installedIn?.length > 0;
-                if (baseWeight <= 0 && !isInstalledUpgrade) {
-                    return;
-                }
-                
-                const excludeOwned = game.settings.get(this.MODULE_ID, "excludeOwnedItems");
-                if (excludeOwned && item.system.equipped === "owned") {
-                    return;
-                }
-                
-                if (true) {
-                    const quantity = item.system.amount ?? 1;
-                    let effectiveWeight = baseWeight;
-                    let isModified = false;
-                    let modReason = "";
-                    
-                    if ((item.type === "cyberware" || item.type === "upgrade") && item.system.isInstalled === true) {
-                        effectiveWeight = 0;
-                        isModified = true;
-                        modReason = "Installed (weightless)";
-                    } else if (item.type === "itemUpgrade") {
-                        const installedIn = item.system.installedIn;
-                        if (installedIn && installedIn.length > 0) {
-                            const parentWeapon = actor.items.get(installedIn[0]);
-                            effectiveWeight = 0;
-                            isModified = true;
-                            if (includeUpgradeWeight) {
-                                modReason = `Installed in ${parentWeapon?.name || "weapon"} (counted there)`;
-                            } else {
-                                modReason = `Installed in ${parentWeapon?.name || "weapon"}`;
-                            }
-                        }
-                    } else if (item.type === "clothing" && item.system.equipped === "equipped") {
-                        effectiveWeight = 0;
-                        isModified = true;
-                        modReason = "Worn (weightless)";
-                    } else if ((item.type === "weapon" || item.type === "armor") && item.system.equipped === "equipped") {
-                        if (equippedMultiplier !== 1) {
-                            effectiveWeight = Math.round((baseWeight * equippedMultiplier) * 10) / 10;
-                            isModified = true;
-                            if (equippedMultiplier === 0) {
-                                modReason = "Equipped (weightless)";
-                            } else if (equippedMultiplier === 0.33) {
-                                modReason = "Equipped (1/3 weight)";
-                            } else if (equippedMultiplier === 0.5) {
-                                modReason = "Equipped (1/2 weight)";
-                            }
-                        }
-                    }
-                    
-                    if (item.type === "weapon" && includeUpgradeWeight) {
-                        const installedIds = item.system.installedItems?.list || [];
-                        let upgradeWeightTotal = 0;
-                        const upgradeNames = [];
-                        for (const id of installedIds) {
-                            const installed = actor.items.get(id);
-                            if (installed?.type === "itemUpgrade") {
-                                const upgradeData = installed.getFlag(this.MODULE_ID, "upgradeData") || {};
-                                
-                                if (!upgradeData.weightlessWhenAttached) {
-                                    const upgradeWeight = installed.getFlag(this.MODULE_ID, "weight")?.value || 0;
-                                    if (upgradeWeight > 0) {
-                                        upgradeWeightTotal += upgradeWeight;
-                                        upgradeNames.push(installed.name);
-                                    }
-                                }
-                                
-                                if (upgradeData.additionalWeight) {
-                                    upgradeWeightTotal += upgradeData.additionalWeight;
-                                    if (!upgradeNames.includes(installed.name)) {
-                                        upgradeNames.push(installed.name);
-                                    }
-                                }
-                            }
-                        }
-                        if (upgradeWeightTotal !== 0) {
-                            effectiveWeight += upgradeWeightTotal;
-                            effectiveWeight = Math.max(0, effectiveWeight);
-                            isModified = true;
-                            if (upgradeWeightTotal > 0) {
-                                modReason = `+${upgradeWeightTotal}u from: ${upgradeNames.join(", ")}`;
-                            } else {
-                                modReason = `${upgradeWeightTotal}u from: ${upgradeNames.join(", ")}`;
-                            }
-                        }
-                    }
-                
-                const containerId = item.getFlag(this.MODULE_ID, "containedIn");
-                if (containerId) {
-                    const container = actor.items.get(containerId);
-                    if (container) {
-                        const containerData = container.getFlag(this.MODULE_ID, "containerData") || {};
-                        const reduction = containerData.weightReduction ?? 1.0;
-                        if (reduction !== 1.0) {
-                            const preContainerWeight = effectiveWeight;
-                            effectiveWeight = Math.round((effectiveWeight * reduction) * 10) / 10;
-                            isModified = true;
-                            if (reduction === 0) {
-                                modReason = modReason ? `${modReason}, then in ${container.name} (weightless)` : `In ${container.name} (weightless)`;
-                            } else {
-                                modReason = modReason ? `${modReason}, then in ${container.name} (${Math.round(reduction * 100)}% weight)` : `In ${container.name} (${Math.round(reduction * 100)}% weight)`;
-                            }
-                        }
-                    }
-                }
-                    
-                    const totalWeight = effectiveWeight * quantity;
-                    
-                    const formatWeight = (weight) => {
-                        const rounded = weight.toFixed(1);
-                        return rounded.endsWith('.0') ? rounded.slice(0, -2) : rounded;
-                    };
-                    
-                    const weightDisplay = `${formatWeight(totalWeight)}u`;
-                    
-                    let bgColor = 'rgba(0,0,0,0.3)';
-                    if (effectiveWeight < baseWeight) {
-                        bgColor = 'rgba(100, 255, 100, 0.7)';
-                    } else if (effectiveWeight > baseWeight) {
-                        bgColor = 'rgba(255, 100, 100, 0.7)';
-                    }
-                    const textColor = 'white';
-                    const tooltip = isModified ? ` title="${modReason} - Base: ${baseWeight}u"` : '';
-                    
-                    const dataElement = itemRow.find('.item-detail.gear-data.text-nowrap').first();
-                    if (dataElement.length > 0) {
-                        dataElement.find('.weight-inline-display').remove();
-                        const existingText = dataElement.text().replace(/^[\d.]+u\s*/, '');
-                        const styledWeight = `<span class="weight-inline-display"${tooltip} style="color: ${textColor}; font-size: 12px; font-weight: bold; padding: 1px 3px; background: ${bgColor}; border-radius: 2px; cursor: ${isModified ? 'help' : 'default'};">${weightDisplay}</span> `;
-                        dataElement.html(styledWeight + existingText);
-                    }
-                }
+    }
+
+    static maybeNotifyOverweight(actor, weightData) {
+        if (weightData.status !== "overweight") {
+            this.notificationCooldowns.delete(actor.id);
+            return;
+        }
+        const last = this.notificationCooldowns.get(actor.id);
+        if (last && Date.now() - last < 30000) return;
+        ui.notifications.warn(`${actor.name} is carrying too much weight! (${weightData.current}/${weightData.max} units)`);
+        this.notificationCooldowns.set(actor.id, Date.now());
+    }
+
+    static getCollapsedState() {
+        try {
+            return foundry.utils.deepClone(game.settings.get(MODULE_ID, "collapsedContainers") || {});
+        } catch (e) {
+            return {};
+        }
+    }
+
+    static isCollapsed(key) {
+        return this.getCollapsedState()[key] === true;
+    }
+
+    static setCollapsed(key, value) {
+        const state = this.getCollapsedState();
+        if (value) state[key] = true;
+        else delete state[key];
+        game.settings.set(MODULE_ID, "collapsedContainers", state);
+    }
+
+    static buildContainersSection(gearTab, ctx) {
+        gearTab.find(".ws-containers-section").remove();
+        if (ctx.containers.size === 0) return;
+
+        const rootList = gearTab.find(".gear-tab-data > ol.items-list").first();
+        if (rootList.length === 0) return;
+
+        const topLevelRow = (id) => rootList.find(`> .collapsible > ol.items-list > li.item[data-item-id="${id}"]`).first();
+        const actorKey = ctx.actor.uuid;
+        const sectionCollapsed = this.isCollapsed(`${actorKey}|section`);
+        const loc = (key, fallback) => {
+            const text = game.i18n.localize(key);
+            return text === key ? fallback : text;
+        };
+
+        const section = $(`
+            <div class="collapsible ws-containers-section">
+                <li class="items-header flexrow">
+                    <span class="item-name gear-name gear-section-header text-nowrap ws-section-toggle" data-tooltip="Show/hide containers">
+                        Containers
+                        <i class="fas ${sectionCollapsed ? "fa-plus" : "fa-minus"} ws-section-icon"></i>
+                    </span>
+                    <span class="item-detail gear-amount gear-section-header text-nowrap">${esc(loc("CPR.global.generic.amount", "Amount"))}</span>
+                    <span class="item-detail gear-data gear-section-header text-nowrap">${esc(loc("CPR.characterSheet.rightPane.data", "Data"))}</span>
+                    <span class="item-detail gear-actions gear-section-header text-nowrap">${esc(loc("CPR.global.generic.actions", "Actions"))}</span>
+                </li>
+                <ol class="items-list ws-containers-list"></ol>
+            </div>`);
+        const list = section.find(".ws-containers-list");
+
+        const containers = [...ctx.containers.values()].sort((a, b) => a.item.name.localeCompare(b.item.name));
+        let moved = 0;
+        for (const entry of containers) {
+            const row = topLevelRow(entry.item.id);
+            if (row.length === 0) continue;
+            const contentsCollapsed = this.isCollapsed(`${actorKey}|${entry.item.id}`);
+            row.removeClass("hide").addClass("ws-container-row").attr("data-ws-container", entry.item.id);
+            if (sectionCollapsed) row.addClass("ws-hidden");
+            list.append(row);
+            moved++;
+
+            const contents = [...entry.contents].sort((a, b) => a.name.localeCompare(b.name));
+            for (const item of contents) {
+                const contentRow = topLevelRow(item.id);
+                if (contentRow.length === 0) continue;
+                contentRow.removeClass("hide").addClass("ws-contained").attr("data-ws-in", entry.item.id);
+                if (sectionCollapsed || contentsCollapsed) contentRow.addClass("ws-hidden");
+                list.append(contentRow);
             }
+        }
+        if (moved === 0) return;
+
+        const gearCategory = rootList.children("div.collapsible").has("#gearTab-gear").first();
+        if (gearCategory.length && gearCategory.parent().is(rootList)) gearCategory.before(section);
+        else rootList.prepend(section);
+
+        section.find(".ws-section-toggle").on("click", () => {
+            const collapse = !this.isCollapsed(`${actorKey}|section`);
+            this.setCollapsed(`${actorKey}|section`, collapse);
+            section.find(".ws-section-icon").toggleClass("fa-plus", collapse).toggleClass("fa-minus", !collapse);
+            list.children("li.item").each((i, el) => {
+                const $el = $(el);
+                const parentId = $el.attr("data-ws-in");
+                const hideContents = parentId && this.isCollapsed(`${actorKey}|${parentId}`);
+                $el.toggleClass("ws-hidden", collapse || !!hideContents);
+            });
         });
+    }
+
+    static weightLabelHtml(result, extraClass = "") {
+        let colorClass = "";
+        if (result.unit < result.base) colorClass = "ws-lighter";
+        else if (result.unit > result.base) colorClass = "ws-heavier";
+        const modified = result.reasons.length > 0;
+        const tooltip = modified ? ` data-tooltip="${esc(`${result.reasons.join(", then ")} - Base: ${fmt(result.base)}u`)}"` : "";
+        return `<span class="weight-inline-display ${colorClass} ${extraClass}${modified ? " ws-modified" : ""}"${tooltip}>${fmt(result.total)}u</span>`;
+    }
+
+    static applyInlineWeights(gearTab, ctx) {
+        gearTab.find(".weight-inline-display").remove();
+        gearTab.find("ol.items-list > li.item[data-item-id]").each((i, el) => {
+            const row = $(el);
+            const item = ctx.actor.items.get(el.dataset.itemId);
+            if (!item) return;
+            const result = this.computeItem(ctx, item);
+            if (result.hidden) return;
+            const target = row.children(".item-detail.gear-data").first();
+            if (target.length > 0) target.prepend(this.weightLabelHtml(result) + " ");
+            else row.children(".item-name").first().append(this.weightLabelHtml(result, "ws-in-name"));
+        });
+    }
+
+    static addInlineWeights(html, actor) {
+        const gearTab = html.find('.tab[data-tab="gear"]');
+        if (gearTab.length) this.applyInlineWeights(gearTab, this.buildContext(actor));
+    }
+
+    static applyContainerIndicators(gearTab, ctx) {
+        gearTab.find("[data-weight-system-indicator]").remove();
+        const actorKey = ctx.actor.uuid;
+
+        for (const [id, entry] of ctx.containers) {
+            const row = gearTab.find(`ol.items-list > li.item[data-item-id="${id}"]`).first();
+            if (row.length === 0) continue;
+            row.attr("data-ws-container", id);
+            const { data } = entry;
+            const load = this.containerLoad(ctx, id);
+            const percentage = data.capacity > 0 ? Math.min((load / data.capacity) * 100, 100) : (load > 0 ? 100 : 0);
+            const isWeightless = data.weightReduction === 0;
+            const names = entry.contents.map(i => i.name).join(", ");
+            const tooltip = `${this.getContainerTypeLabel(data.containerType)}: ${fmt(load)}/${fmt(data.capacity)} units (${entry.contents.length} items)`
+                + `${isWeightless ? " - Weightless!" : ""}${entry.contents.length ? `<br>Contains: ${esc(names)}` : "<br>Empty"}`;
+            const collapsed = this.isCollapsed(`${actorKey}|${id}`);
+            const toggle = entry.contents.length && row.hasClass("ws-container-row")
+                ? `<a class="ws-toggle-contents" data-tooltip="Show/hide contents"><i class="fas fa-chevron-${collapsed ? "right" : "down"}"></i></a>`
+                : "";
+
+            if (toggle) {
+                row.children(".item-name").first().append(
+                    `<span class="ws-container-toggle" data-weight-system-indicator="true">${toggle}</span>`);
+            }
+            const bar = `<span class="ws-container-indicator ws-in-data" data-weight-system-indicator="true">`
+                + `<span class="ws-container-bar" data-tooltip="${esc(tooltip)}">`
+                + `<span class="ws-container-fill" style="width: ${percentage}%; background: ${this.getWeightBarColor(percentage)};"></span>`
+                + `</span></span>`;
+            const dataCell = row.children(".item-detail.gear-data").first();
+            const weightLabel = dataCell.children(".weight-inline-display").first();
+            if (weightLabel.length) weightLabel.after(bar);
+            else if (dataCell.length) dataCell.prepend(bar);
+            else row.children(".item-name").first().append(bar);
+
+            row.find(".ws-toggle-contents").on("click", (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const collapse = !this.isCollapsed(`${actorKey}|${id}`);
+                this.setCollapsed(`${actorKey}|${id}`, collapse);
+                $(event.currentTarget).find("i").toggleClass("fa-chevron-right", collapse).toggleClass("fa-chevron-down", !collapse);
+                row.parent().children(`li.item[data-ws-in="${id}"]`).toggleClass("ws-hidden", collapse);
+            });
+        }
+
+        for (const [itemId, containerId] of ctx.containedIn) {
+            const row = gearTab.find(`ol.items-list > li.item[data-item-id="${itemId}"]`).first();
+            if (row.length === 0) continue;
+            const entry = ctx.containers.get(containerId);
+            const isWeightless = entry.data.weightReduction === 0;
+            const grouped = row.closest(".ws-containers-section").length > 0;
+            row.addClass("ws-contained").toggleClass("ws-grouped", grouped).attr("data-ws-in", containerId);
+            row.children(".item-name").first().prepend(
+                `<span class="ws-contained-marker" data-weight-system-indicator="true" data-tooltip="${esc(`In container: ${entry.item.name}${isWeightless ? " (Weightless)" : ""}`)}">`
+                + `<span aria-hidden="true">↳</span>${grouped ? "" : this.renderContainerIcon(entry.data.icon)}</span>`);
+        }
     }
 
     static addItemContainerIndicators(html, actor) {
         const gearTab = html.find('.tab[data-tab="gear"]');
-        if (gearTab.length === 0) return;
-        
-        gearTab.find('[data-weight-system-indicator]').remove();
-        gearTab.find('.item').css('margin-left', '');
-        gearTab.find('.item .item-name').css({'padding-left': '', 'position': ''});
-        
-        const items = actor.items;
-        
-        items.forEach(item => {
-            const isContainer = item.getFlag(this.MODULE_ID, "isContainer");
-            const containedIn = item.getFlag(this.MODULE_ID, "containedIn");
-
-            const itemElement = gearTab.find(`.item[data-item-id="${item.id}"]`).first();
-            
-            if (isContainer && itemElement.length > 0) {
-                const containerData = item.getFlag(this.MODULE_ID, "containerData") || {};
-                const containerType = containerData.containerType || "multi";
-                const containerContents = items.filter(i => i.getFlag(this.MODULE_ID, "containedIn") === item.id);
-                const contentCount = containerContents.length;
-                const containerIcon = containerData.icon || "box-open";
-                const capacity = containerData.capacity || 50;
-                const contentsWeight = this.getContainerContentsWeight(item);
-                const percentage = Math.min((contentsWeight / capacity) * 100, 100);
-                
-                let barColor = '#52606d';
-                if (percentage >= 39 && percentage < 69) {
-                    barColor = '#fbcc76';
-                } else if (percentage >= 69) {
-                    barColor = '#de453b';
-                }
-                
-                const typeLabel = this.getContainerTypeLabel(containerType);
-                const isWeightless = containerData.weightReduction === 0.0;
-                const shortLabels = {
-                    "multi": "MULT",
-                    "ammo": "AMMO",
-                    "armor": "ARMR",
-                    "clothing": "CLTH",
-                    "cyberdeck": "CYBD",
-                    "cyberware": "CYBW",
-                    "drug": "DRUG",
-                    "gear": "GEAR",
-                    "upgrade": "UPGD",
-                    "program": "PRGM",
-                    "weapon": "WEAP"
-                };
-
-                const shortLabel = shortLabels[containerType] || "CONT";
-                const itemNames = containerContents.map(i => i.name).join(', ');
-                const contentsText = contentCount > 0 ? `\nContains: ${itemNames}` : '\nEmpty';
-                
-                itemElement.find('.item-name [data-weight-system-indicator]').remove();
-
-                const progressBar = `<div data-weight-system-indicator="true" style="display: inline-block; margin-left: 6px; vertical-align: middle;">
-                    <span style="color: #999; font-size: 10px; margin-right: 4px;">
-                        <span style="margin-right: 4px;">${this.renderContainerIcon(containerIcon)}</span>${shortLabel}:
-                    </span>
-                    <div style="display: inline-block; width: 150px !important; height: 8px !important; background: rgba(0,0,0,0.2); border-radius: 3px; overflow: hidden; vertical-align: middle;" title="${typeLabel}: ${contentsWeight.toFixed(1)}/${capacity} units (${contentCount} items)${isWeightless ? ' - Weightless!' : ''}${contentsText}">
-                        <div style="height: 100%; width: ${percentage}%; background: ${barColor}; transition: all 0.3s ease;"></div>
-                    </div>
-                </div>`;
-
-                itemElement.find('.item-name').append(progressBar);
-            }
-
-            if (containedIn && itemElement.length > 0) {
-                const container = items.get(containedIn);
-                const containerData = container?.getFlag(this.MODULE_ID, "containerData") || {};
-                const isWeightless = containerData.weightReduction === 0.0;
-                const containerIcon = containerData.icon || "box-open";
-                const nameCell = itemElement.find('.item-name');
-
-                nameCell.find('[data-weight-system-indicator]').remove();
-
-                const indicator = `<span data-weight-system-indicator="true" style="position: absolute; left: 2px; top: 50%; transform: translateY(-50%); display: inline-flex; align-items: center; gap: 4px; color: #999; font-size: 11px; line-height: 1;" title="In container: ${container?.name}${isWeightless ? ' (Weightless)' : ''}">` +
-                    `<span aria-hidden="true">↳</span>` +
-                    this.renderContainerIcon(containerIcon) +
-                `</span>`;
-
-                nameCell.css({ position: 'relative', 'padding-left': '30px' });
-                nameCell.prepend(indicator);
-            }
-        });
+        if (gearTab.length) this.applyContainerIndicators(gearTab, this.buildContext(actor));
     }
-	
-	static async onRenderVehicleSheet(app, html, data) {
-        if (!game.settings.get(this.MODULE_ID, "enableWeightSystem")) return;
-        
+
+    static getDraggedOwnItem(event, actor) {
+        let data;
+        try {
+            data = TextEditor.getDragEventData(event.originalEvent ?? event);
+        } catch (e) {
+            return null;
+        }
+        if (data?.type !== "Item" || !data.uuid) return null;
+        const item = fromUuidSync(data.uuid);
+        if (!item || item.parent?.uuid !== actor.uuid) return null;
+        return item;
+    }
+
+    static bindContainerDragDrop(gearTab, actor, app) {
+        if (!app.isEditable) return;
+        const targetSelector = "li.item[data-ws-container], li.item[data-ws-in]";
+
+        const drag = this.activeDrag;
+        if (drag && drag.actor === actor && !drag.gearTab[0].isConnected) {
+            const item = actor.items.get(drag.itemId);
+            this.clearDragHighlight();
+            if (item) this.startDragHighlight(gearTab, actor, item);
+        }
+
+        gearTab.off(".ws-drag").on("dragstart.ws-drag", (event) => {
+            const row = event.target.closest?.("li.item[data-item-id]");
+            const item = row && actor.items.get(row.dataset.itemId);
+            this.clearDragHighlight();
+            if (!item) return;
+            this.startDragHighlight(gearTab, actor, item);
+        });
+
+        gearTab.off(".ws-drop")
+            .on("dragover.ws-drop", (event) => {
+                const row = event.target.closest?.(targetSelector);
+                if (row) event.preventDefault();
+                this.updateDragHover(gearTab, row);
+            })
+            .on("dragleave.ws-drop", (event) => {
+                const into = event.originalEvent?.relatedTarget ?? event.relatedTarget;
+                if (!into || !gearTab[0].contains(into)) this.updateDragHover(gearTab, null);
+            })
+            .on("drop.ws-drop", async (event) => {
+                this.clearDragHighlight();
+                const item = this.getDraggedOwnItem(event, actor);
+                if (!item) return;
+
+                const row = event.target.closest?.(targetSelector);
+                if (row) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const containerId = row.dataset.wsContainer || row.dataset.wsIn;
+                    if (!containerId || item.id === containerId) return;
+                    if (item.getFlag(MODULE_ID, "containedIn") === containerId && this.isContainer(actor.items.get(containerId))) return;
+                    await this.putItemInContainer(item, containerId);
+                    return;
+                }
+
+                const ctx = this.buildContext(actor);
+                if (!ctx.containedIn.has(item.id)) return;
+                event.preventDefault();
+                event.stopPropagation();
+                await this.removeFromContainer(item);
+            });
+    }
+
+    static activeDrag = null;
+
+    static startDragHighlight(gearTab, actor, item) {
+        const ctx = this.buildContext(actor);
+        const currentContainer = ctx.containedIn.get(item.id);
+        const states = new Map();
+        for (const [id, entry] of ctx.containers) {
+            if (id === item.id || id === currentContainer) continue;
+            const state = this.canPutInContainer(ctx, item, entry.item).ok ? "ok" : "bad";
+            states.set(id, state);
+            gearTab.find(`li.item[data-ws-container="${id}"]`).addClass(state === "ok" ? "ws-drag-ok" : "ws-drag-bad");
+        }
+        this.activeDrag = { gearTab, actor, itemId: item.id, states, hoverId: null };
+
+        const end = () => this.clearDragHighlight();
+        document.addEventListener("dragend", end, { capture: true, once: true });
+        document.addEventListener("drop", end, { capture: true, once: true });
+        this.activeDrag.cleanup = () => {
+            document.removeEventListener("dragend", end, { capture: true });
+            document.removeEventListener("drop", end, { capture: true });
+        };
+    }
+
+    static updateDragHover(gearTab, row) {
+        const drag = this.activeDrag;
+        if (!drag || drag.gearTab[0] !== gearTab[0]) return;
+        const containerId = row ? (row.dataset.wsContainer || row.dataset.wsIn) : null;
+        const hoverId = containerId && drag.states.has(containerId) ? containerId : null;
+        if (hoverId === drag.hoverId && (!row || row === drag.hoverRow)) return;
+
+        gearTab.find(".ws-drag-over").removeClass("ws-drag-over ws-drag-over-bad");
+        drag.hoverId = hoverId;
+        drag.hoverRow = row;
+        if (!hoverId) return;
+
+        const cls = drag.states.get(hoverId) === "ok" ? "ws-drag-over" : "ws-drag-over ws-drag-over-bad";
+        gearTab.find(`li.item[data-ws-container="${hoverId}"]`).addClass(cls);
+        if (row && !row.dataset.wsContainer) $(row).addClass(cls);
+    }
+
+    static clearDragHighlight() {
+        const drag = this.activeDrag;
+        if (!drag) return;
+        drag.cleanup?.();
+        if (drag.gearTab[0].isConnected) drag.gearTab.find(".ws-drag-ok, .ws-drag-bad, .ws-drag-over").removeClass("ws-drag-ok ws-drag-bad ws-drag-over ws-drag-over-bad");
+        this.activeDrag = null;
+    }
+
+    static scheduleWeightUpdate(actor, { fullRender = false } = {}) {
+        const key = actor.uuid;
+        const existing = this.updateTimeouts.get(key);
+        if (existing) clearTimeout(existing.timer);
+        const needsFull = fullRender || existing?.fullRender || false;
+
+        const timer = setTimeout(async () => {
+            this.updateTimeouts.delete(key);
+            const sheet = actor.sheet;
+            if (!sheet?.rendered) return;
+            if (needsFull) {
+                sheet.render(false);
+                return;
+            }
+            if (this.isVehicleSheet(sheet, sheet.element)) {
+                await this.updateVehicleWeightDisplayOnly(actor, sheet.element);
+            } else {
+                await this.updateWeightDisplayOnly(actor, sheet.element);
+            }
+        }, 50);
+        this.updateTimeouts.set(key, { timer, fullRender: needsFull });
+    }
+
+    static async updateWeightDisplayOnly(actor, html) {
+        if (actor.type !== "character") return;
+        const gearTab = html.find('.tab[data-tab="gear"]');
+        if (gearTab.length === 0 || gearTab.find(".weight-system-container").length === 0) return;
+        const ctx = this.buildContext(actor);
+        const weightData = this.calculateActorWeightSync(actor, ctx);
+        this.renderWeightDisplay(gearTab, actor, weightData);
+        this.applyInlineWeights(gearTab, ctx);
+        this.applyContainerIndicators(gearTab, ctx);
+        this.maybeNotifyOverweight(actor, weightData);
+    }
+
+    static async onRenderVehicleSheet(app, html, data) {
+        if (!game.settings.get(MODULE_ID, "enableWeightSystem")) return;
         const actor = app.actor;
         if (!actor) return;
-        
-        await this.addVehicleWeightDisplay(app, html, actor);
-        this.addVehicleInlineWeights(html, actor);
-        this.addVehicleWeaponsArmorInlineWeights(html, actor);
-        this.addVehicleContainerIndicators(html, actor);
+        const ctx = this.buildContext(actor, { vehicle: true });
+        this.renderVehicleWeightDisplay(html, actor, this.calculateVehicleWeightSync(actor, ctx));
+        this.applyVehicleDecorations(html, ctx);
         this.addVehicleItemContextMenus(app, html, actor);
     }
 
     static async addVehicleWeightDisplay(app, html, actor) {
+        this.renderVehicleWeightDisplay(html, actor, this.calculateVehicleWeightSync(actor));
+    }
+
+    static renderVehicleWeightDisplay(html, actor, weightData) {
         const cargoTab = html.find('.tab[data-tab="cargo"]');
         if (cargoTab.length === 0) return;
-        
-        const weightData = await this.calculateVehicleWeight(actor);
-        
-        let barColor = '#52606d';
-        if (weightData.percentage >= 39 && weightData.percentage < 69) {
-            barColor = '#fbcc76';
-        } else if (weightData.percentage >= 69) {
-            barColor = '#de453b';
+
+        let container = cargoTab.find(".weight-system-container.vehicle-weight").first();
+        if (container.length === 0) {
+            container = $(`
+                <div class="weight-system-container vehicle-weight">
+                    <div class="ws-display-row">
+                        <span><strong>Cargo Capacity:</strong></span>
+                        <span class="vehicle-weight-text"></span>
+                    </div>
+                    <div class="weight-bar"><div class="weight-fill"></div></div>
+                    <div class="ws-overweight-warning">⚠️ OVERLOADED!</div>
+                </div>`);
+            cargoTab.find(".items-header").first().after(container);
         }
-        
-        const weightHtml = `
-            <div class="weight-system-container vehicle-weight" style="margin: 8px 0; padding: 6px; background: rgba(0,0,0,0.2); border-radius: 4px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                    <span><strong>Cargo Capacity:</strong></span>
-                    <span class="vehicle-weight-text" style="color: ${weightData.status === 'overweight' ? '#de453b' : 'inherit'}; font-weight: bold;">
-                        ${this._vehicleCapText(weightData)}
-                    </span>
-                </div>
-                <div style="height: 8px; background: rgba(0,0,0,0.3); border-radius: 4px; overflow: hidden;">
-                    <div class="weight-fill" style="height: 100%; width: ${Math.min(weightData.percentage, 100)}%; background: ${barColor}; transition: all 0.3s ease;"></div>
-                </div>
-                ${weightData.status === 'overweight' ? '<div style="color: #de453b; font-size: 12px; font-weight: bold; margin-top: 4px;">⚠️ OVERLOADED!</div>' : ''}
-            </div>
-        `;
-        
-        cargoTab.find('.weight-system-container').remove();
-        cargoTab.find('.items-header').after(weightHtml);
-        this._bindVehicleCapEdit(actor, cargoTab.find('.weight-system-container.vehicle-weight'));
+
+        const overweight = weightData.status === "overweight";
+        container.toggleClass("overweight", overweight);
+        container.find(".vehicle-weight-text").html(this._vehicleCapText(weightData));
+        container.find(".weight-fill").css({
+            width: `${Math.min(weightData.percentage, 100)}%`,
+            background: this.getWeightBarColor(weightData.percentage)
+        });
+        this._bindVehicleCapEdit(actor, container);
     }
 
     static _vehicleCapText(weightData) {
         const valAttrs = game.user.isGM
-            ? 'data-editable="1" title="Click to edit cargo capacity" style="cursor: pointer; text-decoration: underline dotted;"'
-            : '';
-        return `${weightData.current}/<span class="vehicle-cap-value" ${valAttrs} data-base="${weightData.base}">${weightData.max}</span> units`;
+            ? 'data-editable="1" data-tooltip="Click to edit cargo capacity"'
+            : "";
+        return `${weightData.current}/<span class="vehicle-cap-value${game.user.isGM ? " ws-editable" : ""}" ${valAttrs} data-base="${esc(weightData.base)}">${weightData.max}</span> units`;
     }
 
     static _bindVehicleCapEdit(actor, container) {
         if (!game.user.isGM || !container || container.length === 0) return;
-        container.find('.vehicle-cap-value').off('click.weight-system').on('click.weight-system', (event) => {
+        container.find(".vehicle-cap-value").off("click.weight-system").on("click.weight-system", (event) => {
             event.preventDefault();
             event.stopPropagation();
             this._beginVehicleCapEdit(actor, $(event.currentTarget));
@@ -1069,10 +1213,10 @@ static addInlineWeights(html, actor) {
     }
 
     static _beginVehicleCapEdit(actor, $el) {
-        const base = parseFloat($el.attr('data-base')) || 0;
-        const $input = $(`<input type="number" class="vehicle-cap-input" value="${base}" step="1" min="0" style="width: 64px; padding: 1px 3px;">`);
+        const base = parseFloat($el.attr("data-base")) || 0;
+        const $input = $(`<input type="number" class="vehicle-cap-input" value="${base}" step="1" min="0">`);
         $el.replaceWith($input);
-        $input.trigger('focus').trigger('select');
+        $input.trigger("focus").trigger("select");
 
         const restore = () => {
             const sheet = actor.sheet;
@@ -1082,749 +1226,291 @@ static addInlineWeights(html, actor) {
             $input.off();
             const val = parseFloat($input.val());
             if (Number.isFinite(val) && val >= 0) {
-                await actor.setFlag(this.MODULE_ID, "vehicleCapacity", val);
+                await actor.setFlag(MODULE_ID, "vehicleCapacity", val);
             } else {
                 restore();
             }
         };
 
-        $input.on('keydown', (event) => {
-            if (event.key === 'Enter') {
+        $input.on("keydown", (event) => {
+            if (event.key === "Enter") {
                 event.preventDefault();
-                $input.off('blur');
+                $input.off("blur");
                 commit();
-            } else if (event.key === 'Escape') {
+            } else if (event.key === "Escape") {
                 event.preventDefault();
                 $input.off();
                 restore();
             }
         });
-        $input.on('blur', commit);
-    }
-	
-	static async calculateVehicleWeight(actor) {
-        const items = actor.items.filter(item => item.type !== "criticalInjury" && item.type !== "skill" && item.type !== "role");
-        let totalWeight = 0;
-        const equippedSetting = game.settings.get(this.MODULE_ID, "equippedWeaponWeight");
-        const equippedMultiplier = Number(equippedSetting);
-
-        for (const item of items) {
-            const containerId = item.getFlag(this.MODULE_ID, "containedIn");
-            if (containerId) continue;
-
-            if (this.isContainer(item)) {
-                totalWeight += await this.calculateContainerWeight(item, actor);
-                continue;
-            }
-
-            const weightData = item.getFlag(this.MODULE_ID, "weight");
-            if (!weightData) continue;
-
-            let weight = parseFloat(weightData.value) || 0;
-            const quantity = item.system.amount ?? 1;
-
-            if (item.type === "cyberware" && item.getFlag("mmutons-cyberpunk-red-vas", "installed")) {
-                continue;
-            }
-
-            if (item.type === "itemUpgrade" && item.getFlag("mmutons-cyberpunk-red-vas", "mounted")) {
-                continue;
-            }
-
-            if (item.type === "weapon" && item.getFlag("mmutons-cyberpunk-red-vas", "mountedPosition")) {
-                weight = Math.round((weight * equippedMultiplier) * 10) / 10;
-            }
-
-            totalWeight += weight * quantity;
-        }
-
-        const perVehicleCap = actor.getFlag(this.MODULE_ID, "vehicleCapacity");
-        const baseWeight = Number.isFinite(perVehicleCap)
-            ? perVehicleCap
-            : (game.settings.get(this.MODULE_ID, "vehicleCargoCapacity") || 50);
-        
-        const capacityBonus = this.getVehicleCapacityBonus(actor);
-        const maxWeight = baseWeight + capacityBonus;
-
-        const percentage = Math.round((totalWeight / maxWeight) * 100);
-        const status = percentage > 100 ? 'overweight' : 'normal';
-
-        return {
-            current: Math.round(totalWeight * 10) / 10,
-            max: Math.round(maxWeight * 10) / 10,
-            base: baseWeight,
-            bonus: capacityBonus,
-            percentage: percentage,
-            status: status
-        };
+        $input.on("blur", commit);
     }
 
-    static getVehicleCapacityBonus(actor) {
-        let bonus = 0;
-        
-        for (const item of actor.items) {
-            if (item.type === "cyberware" && item.getFlag("mmutons-cyberpunk-red-vas", "installed")) {
-                const capacityBonus = item.getFlag(this.MODULE_ID, "capacityBonus");
-                if (capacityBonus && capacityBonus.value > 0) {
-                    bonus += capacityBonus.value;
-                }
-            }
+    static async updateVehicleWeightDisplayOnly(actor, html) {
+        const cargoTab = html.find('.tab[data-tab="cargo"]');
+        if (cargoTab.find(".weight-system-container.vehicle-weight").length === 0) return;
+        const ctx = this.buildContext(actor, { vehicle: true });
+        this.renderVehicleWeightDisplay(html, actor, this.calculateVehicleWeightSync(actor, ctx));
+        this.applyVehicleDecorations(html, ctx);
+    }
 
-            if (item.type === "itemUpgrade" && item.getFlag("mmutons-cyberpunk-red-vas", "mounted")) {
-                const upgradeData = item.getFlag(this.MODULE_ID, "upgradeData");
-                const adjustment = parseFloat(upgradeData?.additionalWeight) || 0;
-                bonus += adjustment;
-            }
+    static applyVehicleDecorations(html, ctx) {
+        this.applyVehicleCargoWeights(html, ctx);
+        this.applyVehicleWeaponsArmorWeights(html, ctx);
+        this.applyVehicleContainerIndicators(html, ctx);
+    }
+
+    static applyVehicleCargoWeights(html, ctx) {
+        const cargoTab = html.find('.tab[data-tab="cargo"]');
+        if (cargoTab.length === 0) return;
+        cargoTab.find(".weight-inline-display").remove();
+        cargoTab.find(".item[data-item-id]").each((i, el) => {
+            const item = ctx.actor.items.get(el.dataset.itemId);
+            if (!item) return;
+            const result = this.computeItem(ctx, item);
+            if (result.base <= 0) return;
+            $(el).find(".item-properties").first().prepend(this.weightLabelHtml(result, "property ws-vehicle-label"));
+        });
+    }
+
+    static applyVehicleWeaponsArmorWeights(html, ctx) {
+        const weaponsTab = html.find('.tab[data-tab="weapons"]');
+        if (weaponsTab.length === 0) return;
+        weaponsTab.find(".weight-inline-display").remove();
+        weaponsTab.find(".item[data-item-id]").each((i, el) => {
+            const item = ctx.actor.items.get(el.dataset.itemId);
+            if (!item || (item.type !== "weapon" && item.type !== "armor")) return;
+            const result = this.computeItem(ctx, item);
+            if (result.base <= 0) return;
+            const label = this.weightLabelHtml(result, "ws-vehicle-weapon-label");
+            const row = $(el);
+            const badge = row.find(".mounted-badge").first();
+            if (badge.length) badge.after(label);
+            else if (row.find(".item-controls").length) row.find(".item-controls").first().append(label);
+            else row.find(".item-properties").first().append(label);
+        });
+    }
+
+    static applyVehicleContainerIndicators(html, ctx) {
+        const cargoTab = html.find('.tab[data-tab="cargo"]');
+        if (cargoTab.length === 0) return;
+        cargoTab.find(".vehicle-container-indicator, .vehicle-contained-indicator").remove();
+
+        for (const [id, entry] of ctx.containers) {
+            const row = cargoTab.find(`.item[data-item-id="${id}"]`).first();
+            if (row.length === 0) continue;
+            const { data } = entry;
+            const load = this.containerLoad(ctx, id);
+            const percentage = data.capacity > 0 ? Math.min((load / data.capacity) * 100, 100) : (load > 0 ? 100 : 0);
+            row.find(".item-details").first().append(`
+                <div class="vehicle-container-indicator">
+                    <span class="ws-container-label">${this.renderContainerIcon(data.icon)} ${CONTAINER_SHORT_LABELS[data.containerType] || "CONT"}:</span>
+                    <div class="ws-container-bar ws-small" data-tooltip="${esc(`${fmt(load)}/${fmt(data.capacity)} units`)}">
+                        <div class="ws-container-fill" style="width: ${percentage}%; background: ${this.getWeightBarColor(percentage)};"></div>
+                    </div>
+                </div>`);
         }
-        
-        return bonus;
+
+        for (const [itemId, containerId] of ctx.containedIn) {
+            const row = cargoTab.find(`.item[data-item-id="${itemId}"]`).first();
+            if (row.length === 0) continue;
+            const entry = ctx.containers.get(containerId);
+            row.find(".item-name").first().prepend(
+                `<span class="vehicle-contained-indicator" data-tooltip="${esc(`In container: ${entry.item.name}`)}">↳ ${this.renderContainerIcon(entry.data.icon)}</span>`);
+        }
     }
 
     static addVehicleInlineWeights(html, actor) {
-        const cargoTab = html.find('.tab[data-tab="cargo"]');
-        if (cargoTab.length === 0) return;
-        
-        const items = actor.items;
-        
-        items.forEach(item => {
-            const itemRow = cargoTab.find(`.item[data-item-id="${item.id}"]`);
-            if (itemRow.length === 0) return;
-            
-            const weightData = item.getFlag(this.MODULE_ID, "weight") || { value: 0 };
-            const baseWeight = weightData.value || 0;
-            
-            if (baseWeight <= 0) return;
-            
-            const quantity = item.system.amount ?? 1;
-            let effectiveWeight = baseWeight;
-            let isModified = false;
-            let modReason = "";
-            
-            if (item.type === "cyberware" && item.getFlag("mmutons-cyberpunk-red-vas", "installed")) {
-                effectiveWeight = 0;
-                isModified = true;
-                modReason = "Installed (weightless)";
-            } else if (item.type === "itemUpgrade" && item.getFlag("mmutons-cyberpunk-red-vas", "mounted")) {
-                effectiveWeight = 0;
-                isModified = true;
-                modReason = "Mounted (weightless)";
-            } else if (item.type === "weapon" && item.getFlag("mmutons-cyberpunk-red-vas", "mountedPosition")) {
-                const equippedSetting = game.settings.get(this.MODULE_ID, "equippedWeaponWeight");
-                const equippedMultiplier = Number(equippedSetting);
-                if (equippedMultiplier !== 1) {
-                    effectiveWeight = Math.round((baseWeight * equippedMultiplier) * 10) / 10;
-                    isModified = true;
-                    if (equippedMultiplier === 0) {
-                        modReason = "Mounted (weightless)";
-                    } else if (equippedMultiplier === 0.33) {
-                        modReason = "Mounted (1/3 weight)";
-                    } else if (equippedMultiplier === 0.5) {
-                        modReason = "Mounted (1/2 weight)";
-                    }
-                }
-            }
-            
-            const containerId = item.getFlag(this.MODULE_ID, "containedIn");
-            if (containerId) {
-                const container = actor.items.get(containerId);
-                if (container) {
-                    const containerData = container.getFlag(this.MODULE_ID, "containerData") || {};
-                    const reduction = containerData.weightReduction ?? 1.0;
-                    if (reduction !== 1.0) {
-                        effectiveWeight = Math.round((effectiveWeight * reduction) * 10) / 10;
-                        isModified = true;
-                        if (reduction === 0) {
-                            modReason = `In ${container.name} (weightless)`;
-                        } else {
-                            modReason = `In ${container.name} (${Math.round(reduction * 100)}% weight)`;
-                        }
-                    }
-                }
-            }
-            
-            const totalWeight = effectiveWeight * quantity;
-            
-            const formatWeight = (weight) => {
-                const rounded = weight.toFixed(1);
-                return rounded.endsWith('.0') ? rounded.slice(0, -2) : rounded;
-            };
-            
-            const weightDisplay = `${formatWeight(totalWeight)}u`;
-            
-            let bgColor = 'rgba(0,0,0,0.3)';
-            if (effectiveWeight < baseWeight) {
-                bgColor = 'rgba(100, 255, 100, 0.7)';
-            } else if (effectiveWeight > baseWeight) {
-                bgColor = 'rgba(255, 100, 100, 0.7)';
-            }
-            
-            const tooltip = isModified ? ` title="${modReason} - Base: ${baseWeight}u"` : '';
-            
-            const propertiesDiv = itemRow.find('.item-properties');
-            propertiesDiv.find('.weight-inline-display').remove();
-            
-            const weightSpan = `<span class="weight-inline-display property"${tooltip} style="color: white; font-weight: bold; padding: 1px 4px; background: ${bgColor}; border-radius: 2px; cursor: ${isModified ? 'help' : 'default'};">${weightDisplay}</span>`;
-            propertiesDiv.prepend(weightSpan);
-        });
+        this.applyVehicleCargoWeights(html, this.buildContext(actor, { vehicle: true }));
     }
-	
-	static addVehicleWeaponsArmorInlineWeights(html, actor) {
-        const weaponsTab = html.find('.tab[data-tab="weapons"]');
-        if (weaponsTab.length === 0) return;
-        
-        const items = actor.items;
-        const equippedSetting = game.settings.get(this.MODULE_ID, "equippedWeaponWeight");
-        const equippedMultiplier = Number(equippedSetting);
-        
-        items.forEach(item => {
-            if (item.type !== "weapon" && item.type !== "armor") return;
-            
-            const itemRow = weaponsTab.find(`.item[data-item-id="${item.id}"]`);
-            if (itemRow.length === 0) return;
-            
-            const weightData = item.getFlag(this.MODULE_ID, "weight") || { value: 0 };
-            const baseWeight = weightData.value || 0;
-            
-            if (baseWeight <= 0) return;
-            
-            const quantity = item.system.amount ?? 1;
-            let effectiveWeight = baseWeight;
-            let isModified = false;
-            let modReason = "";
-            
-            const isMounted = item.getFlag("mmutons-cyberpunk-red-vas", "mountedPosition");
-            
-            if (isMounted) {
-                if (equippedMultiplier !== 1) {
-                    effectiveWeight = Math.round((baseWeight * equippedMultiplier) * 10) / 10;
-                    isModified = true;
-                    if (equippedMultiplier === 0) {
-                        modReason = "Mounted (weightless)";
-                    } else if (equippedMultiplier === 0.33) {
-                        modReason = "Mounted (1/3 weight)";
-                    } else if (equippedMultiplier === 0.5) {
-                        modReason = "Mounted (1/2 weight)";
-                    }
-                }
-            }
-            
-            const totalWeight = effectiveWeight * quantity;
-            
-            const formatWeight = (weight) => {
-                const rounded = weight.toFixed(1);
-                return rounded.endsWith('.0') ? rounded.slice(0, -2) : rounded;
-            };
-            
-            const weightDisplay = `${formatWeight(totalWeight)}u`;
-            
-            let bgColor = 'rgba(0,0,0,0.3)';
-            if (effectiveWeight < baseWeight) {
-                bgColor = 'rgba(100, 255, 100, 0.7)';
-            } else if (effectiveWeight > baseWeight) {
-                bgColor = 'rgba(255, 100, 100, 0.7)';
-            }
-            
-            const tooltip = isModified ? ` title="${modReason} - Base: ${baseWeight}u"` : '';
-            
-            itemRow.find('.weight-inline-display').remove();
-            
-            const weightSpan = `<span class="weight-inline-display"${tooltip} style="color: white; font-weight: bold; padding: 1px 4px; background: ${bgColor}; border-radius: 2px; cursor: ${isModified ? 'help' : 'default'}; margin-left: 6px; font-size: 11px; vertical-align: middle;">${weightDisplay}</span>`;
-            
-            const mountedBadge = itemRow.find('.mounted-badge');
-            if (mountedBadge.length > 0) {
-                mountedBadge.after(weightSpan);
-            } else {
-                const itemControls = itemRow.find('.item-controls');
-                if (itemControls.length > 0) {
-                    itemControls.append(weightSpan);
-                } else {
-                    const itemProperties = itemRow.find('.item-properties');
-                    if (itemProperties.length > 0) {
-                        itemProperties.append(weightSpan);
-                    }
-                }
-            }
-        });
+
+    static addVehicleWeaponsArmorInlineWeights(html, actor) {
+        this.applyVehicleWeaponsArmorWeights(html, this.buildContext(actor, { vehicle: true }));
     }
 
     static addVehicleContainerIndicators(html, actor) {
-        const cargoTab = html.find('.tab[data-tab="cargo"]');
-        if (cargoTab.length === 0) return;
-        
-        const items = actor.items;
-        
-        items.forEach(item => {
-            const isContainer = item.getFlag(this.MODULE_ID, "isContainer");
-            const containedIn = item.getFlag(this.MODULE_ID, "containedIn");
-            
-            const itemRow = cargoTab.find(`.item[data-item-id="${item.id}"]`);
-            if (itemRow.length === 0) return;
-            
-            if (isContainer) {
-                const containerData = item.getFlag(this.MODULE_ID, "containerData") || {};
-                const containerType = containerData.containerType || "multi";
-                const containerIcon = containerData.icon || "fa:box-open";
-                const capacity = containerData.capacity || 50;
-                const contentsWeight = this.getContainerContentsWeight(item);
-                const percentage = Math.min((contentsWeight / capacity) * 100, 100);
-                
-                let barColor = '#52606d';
-                if (percentage >= 39 && percentage < 69) barColor = '#fbcc76';
-                else if (percentage >= 69) barColor = '#de453b';
-                
-                const shortLabels = {
-                    "multi": "CONT", "ammo": "AMMO", "armor": "ARMR", "clothing": "CLTH",
-                    "cyberdeck": "CYBD", "cyberware": "CYBW", "drug": "DRUG", "gear": "GEAR",
-                    "upgrade": "UPGD", "program": "PRGM", "weapon": "WEAP"
-                };
-                const shortLabel = shortLabels[containerType] || "CONT";
-                
-                itemRow.find('.vehicle-container-indicator').remove();
-                
-                const indicator = `<div class="vehicle-container-indicator" style="display: flex; align-items: center; gap: 4px; margin-left: 8px;">
-                    <span style="color: #999; font-size: 10px;">${this.renderContainerIcon(containerIcon)} ${shortLabel}:</span>
-                    <div style="width: 60px; height: 6px; background: rgba(0,0,0,0.3); border-radius: 3px; overflow: hidden;" title="${contentsWeight.toFixed(1)}/${capacity} units">
-                        <div style="height: 100%; width: ${percentage}%; background: ${barColor};"></div>
-                    </div>
-                </div>`;
-                
-                itemRow.find('.item-details').append(indicator);
+        this.applyVehicleContainerIndicators(html, this.buildContext(actor, { vehicle: true }));
+    }
+
+    static onItemChange(item, changes, options = {}) {
+        if (!game.settings.get(MODULE_ID, "enableWeightSystem")) return;
+        const actor = item.parent;
+        if (!actor || actor.documentName !== "Actor") return;
+        const sheet = actor.sheet;
+        if (!sheet?.rendered) return;
+
+        const flagChanges = changes ? foundry.utils.getProperty(changes, `flags.${MODULE_ID}`) : null;
+        const structural = !!flagChanges && ["containedIn", "-=containedIn", "isContainer", "-=isContainer", "containerData"]
+            .some(key => key in flagChanges);
+        this.scheduleWeightUpdate(actor, { fullRender: structural && options.render === false });
+    }
+
+    static onRenderActorSheet(...args) {
+        return this.onInitialRender(...args);
+    }
+
+    static onPreCreateItem(item, data, options, userId) {
+        const containerId = item.getFlag(MODULE_ID, "containedIn");
+        if (!containerId || options?.keepId) return;
+        const container = item.parent?.items?.get(containerId);
+        if (container && this.isContainer(container) && !this.isContainer(item)) return;
+        item.updateSource({ [`flags.${MODULE_ID}.-=containedIn`]: null });
+    }
+
+    static async clearContents(actor, containerId) {
+        const updates = actor.items
+            .filter(i => i.getFlag(MODULE_ID, "containedIn") === containerId)
+            .map(i => ({ _id: i.id, [`flags.${MODULE_ID}.-=containedIn`]: null }));
+        if (updates.length) await actor.updateEmbeddedDocuments("Item", updates);
+    }
+
+    static async cleanupAfterItemDelete(item, userId) {
+        if (userId !== game.user.id) return;
+        const actor = item.parent;
+        if (!actor || actor.documentName !== "Actor" || !this.isContainer(item)) return;
+        try {
+            await this.clearContents(actor, item.id);
+        } catch (e) {
+            console.warn("Weight System: Could not clear contents of deleted container", e);
+        }
+    }
+
+    static async cleanupAfterItemUpdate(item, changes, userId) {
+        if (userId !== game.user.id) return;
+        const actor = item.parent;
+        if (!actor || actor.documentName !== "Actor") return;
+        const flagChanges = foundry.utils.getProperty(changes, `flags.${MODULE_ID}`);
+        if (!flagChanges) return;
+        try {
+            if (flagChanges.isContainer === false || "-=isContainer" in flagChanges) {
+                await this.clearContents(actor, item.id);
             }
-            
-            if (containedIn) {
-                const container = items.get(containedIn);
-                const containerIcon = container?.getFlag(this.MODULE_ID, "containerData")?.icon || "fa:box-open";
-                
-                itemRow.find('.vehicle-contained-indicator').remove();
-                
-                const indicator = `<span class="vehicle-contained-indicator" style="color: #999; font-size: 11px; margin-right: 4px;" title="In container: ${container?.name || 'Unknown'}">↳ ${this.renderContainerIcon(containerIcon)}</span>`;
-                itemRow.find('.item-name').prepend(indicator);
+            if (flagChanges.isContainer === true && item.getFlag(MODULE_ID, "containedIn")) {
+                await item.unsetFlag(MODULE_ID, "containedIn");
             }
-        });
-    }
-
-    static addVehicleItemContextMenus(app, html, actor) {
-        const cargoTab = html.find('.tab[data-tab="cargo"]');
-        if (cargoTab.length === 0) return;
-        
-        cargoTab.find('.item').each((index, element) => {
-            const $element = $(element);
-            
-            $element.off('contextmenu.weight-system').on('contextmenu.weight-system', (event) => {
-                event.preventDefault();
-                
-                const itemId = $element.data('item-id');
-                const item = actor.items.get(itemId);
-                if (!item) return;
-                
-                const isContained = item.getFlag(this.MODULE_ID, "containedIn");
-                const containers = actor.items.filter(i => i.getFlag(this.MODULE_ID, "isContainer"));
-                
-                const menuItems = [];
-                
-                if (!isContained && containers.length > 0) {
-                    menuItems.push({
-                        icon: '<i class="fas fa-box"></i>',
-                        name: "Put in Container",
-                        callback: () => this.showContainerDialog(item)
-                    });
-                }
-                
-                if (isContained) {
-                    menuItems.push({
-                        icon: '<i class="fas fa-box-open"></i>',
-                        name: "Remove from Container",
-                        callback: () => this.removeFromContainer(item)
-                    });
-                }
-                
-                if (menuItems.length > 0) {
-                    const menuHtml = `
-                        <div class="weight-system-context-menu" style="
-                            position: fixed; 
-                            left: ${event.pageX}px; 
-                            top: ${event.pageY}px; 
-                            background: var(--cpr-background-chat-card-block, #52606d); 
-                            border: 1px solid var(--cpr-background-chat-border, #999999); 
-                            padding: 0;
-                            box-shadow: 0 2px 8px rgba(0,0,0,0.4);
-                            z-index: 10000;
-                            min-width: 180px;
-                            clip-path: polygon(0 0.5rem, 0 100%, 100% 100%, 100% 0, 0.5rem 0);
-                        ">
-                            ${menuItems.map(item => 
-                                `<div class="menu-item" data-action="${item.name}" style="
-                                    padding: 8px 12px; 
-                                    cursor: pointer; 
-                                    border-bottom: 1px solid var(--cpr-background-chat-card-block-before, #3b3b3b);
-                                    font-size: 13px;
-                                    color: var(--cpr-text-chat-normal, #eaeaea);
-                                    background: var(--cpr-background-chat-card-block-before, #3b3b3b);
-                                ">
-                                    ${item.icon} ${item.name}
-                                </div>`
-                            ).join('')}
-                        </div>
-                    `;
-                    
-                    $('.weight-system-context-menu').remove();
-                    $('body').append(menuHtml);
-                    
-                    $('.weight-system-context-menu .menu-item').on('click', function() {
-                        const action = $(this).data('action');
-                        const menuItem = menuItems.find(i => i.name === action);
-                        if (menuItem) menuItem.callback();
-                        $('.weight-system-context-menu').remove();
-                    });
-                    
-                    $('.weight-system-context-menu .menu-item').on('mouseenter', function() {
-                        $(this).css('background', 'var(--cpr-background-chat-card-block, #52606d)');
-                    }).on('mouseleave', function() {
-                        $(this).css('background', 'var(--cpr-background-chat-card-block-before, #3b3b3b)');
-                    });
-                    
-                    setTimeout(() => {
-                        $(document).one('click', () => $('.weight-system-context-menu').remove());
-                    }, 100);
-                }
-            });
-        });
-    }
-
-    static getContainerInfo(actor) {
-        const containers = actor.items.filter(item => item.getFlag(this.MODULE_ID, "isContainer"));
-        return containers.map(container => {
-            const contents = actor.items.filter(item => 
-                item.getFlag(this.MODULE_ID, "containedIn") === container.id
-            );
-            const contentsWeight = contents.reduce((total, item) => total + this.getItemWeight(item), 0);
-            const containerData = container.getFlag(this.MODULE_ID, "containerData") || {};
-            const reducedWeight = contentsWeight * (containerData.weightReduction || 1.0);
-            
-            return {
-                name: container.name,
-                contents: contents.length,
-                originalWeight: contentsWeight,
-                reducedWeight: reducedWeight,
-                savings: contentsWeight - reducedWeight
-            };
-        });
-    }
-
-    static async calculateActorWeight(actor) {
-        const items = actor.items.filter(item => item.type !== "criticalinjury");
-        let totalWeight = 0;
-        const processedContainers = new Set();
-
-        for (const item of items) {
-            const containerId = item.getFlag(this.MODULE_ID, "containedIn");
-            if (containerId && processedContainers.has(containerId)) {
-                continue;
-            }
-
-            if (this.isContainer(item)) {
-                totalWeight += await this.calculateContainerWeight(item, actor);
-                processedContainers.add(item.id);
-            } else if (!containerId) {
-                totalWeight += this.getItemWeight(item);
-            }
+        } catch (e) {
+            console.warn("Weight System: Container cleanup failed", e);
         }
-
-        const maxWeight = this.calculateMaxWeight(actor);
-        const percentage = (totalWeight / maxWeight) * 100;
-        const status = percentage > 100 ? 'overweight' : 'normal';
-
-        return {
-            current: Math.round(totalWeight * 10) / 10,
-            max: maxWeight,
-            percentage: Math.round(percentage),
-            status: status
-        };
-    }
-
-    static calculateMaxWeight(actor) {
-        const calculationMethod = game.settings.get(this.MODULE_ID, "capacityCalculation");
-        
-        let baseCapacity;
-        if (calculationMethod === "custom") {
-            baseCapacity = game.settings.get(this.MODULE_ID, "customCapacity");
-        } else {
-            const body = actor.system.stats?.body?.value ?? 10;
-            const multiplier = game.settings.get(this.MODULE_ID, "baseWeightMultiplier");
-            baseCapacity = body * multiplier;
-        }
-        
-        const capacityBonus = this.getCapacityBonus(actor);
-        
-        return baseCapacity + capacityBonus;
-    }
-
-    static getCapacityBonus(actor) {
-        let bonus = 0;
-        
-        for (const item of actor.items) {
-            if (item.type === "cyberware" && item.system.isInstalled === true) {
-                const capacityBonus = item.getFlag(this.MODULE_ID, "capacityBonus");
-                if (capacityBonus && capacityBonus.value > 0) {
-                    bonus += capacityBonus.value;
-                }
-            }
-        }
-        
-        return bonus;
-    }
-
-    static getItemWeight(item) {
-        const weightData = item.getFlag(this.MODULE_ID, "weight");
-        if (!weightData) return 0;
-        
-        let weight = parseFloat(weightData.value) || 0;
-        const quantity = item.system.amount ?? 1;
-        
-        if (game.settings.get(this.MODULE_ID, "excludeOwnedItems") && item.system.equipped === "owned") {
-            return 0;
-        }
-        
-        if ((item.type === "cyberware" || item.type === "upgrade") && item.system.isInstalled === true) {
-            return 0;
-        }
-        
-        if (item.type === "itemUpgrade") {
-            const installedIn = item.system.installedIn;
-            if (installedIn && installedIn.length > 0) {
-                return 0;
-            }
-        }
-        
-        if (item.type === "clothing" && item.system.equipped === "equipped") {
-            return 0;
-        }
-
-        if (item.type === "weapon" && game.settings.get(this.MODULE_ID, "includeUpgradeWeight")) {
-            const installedIds = item.system.installedItems?.list || [];
-            for (const id of installedIds) {
-                const installed = item.parent?.items.get(id);
-                if (installed?.type === "itemUpgrade") {
-                    const upgradeData = installed.getFlag(this.MODULE_ID, "upgradeData") || {};
-                    
-                    if (!upgradeData.weightlessWhenAttached) {
-                        const upgradeWeight = installed.getFlag(this.MODULE_ID, "weight")?.value || 0;
-                        weight += upgradeWeight;
-                    }
-                    
-                    if (upgradeData.additionalWeight) {
-                        weight += upgradeData.additionalWeight;
-                    }
-                }
-            }
-            weight = Math.max(0, weight);
-        }
-
-        if ((item.type === "weapon" || item.type === "armor") && item.system.equipped === "equipped") {
-            const equippedSetting = game.settings.get(this.MODULE_ID, "equippedWeaponWeight");
-            const multiplier = Number(equippedSetting);
-            const safeMultiplier = Number.isFinite(multiplier) ? multiplier : 1;
-            weight = Math.round((weight * safeMultiplier) * 10) / 10;
-        }
-
-        return weight * quantity;
-    }
-
-    static isContainer(item) {
-        return item.getFlag(this.MODULE_ID, "isContainer") === true;
-    }
-
-    static async calculateContainerWeight(container, actor) {
-        const containerWeight = this.getItemWeight(container);
-        const containerData = container.getFlag(this.MODULE_ID, "containerData") || {};
-        const weightReduction = containerData.weightReduction ?? 1.0;
-
-        const containedItems = actor.items.filter(item => 
-            item.getFlag(this.MODULE_ID, "containedIn") === container.id
-        );
-
-        let contentsWeight = 0;
-        for (const item of containedItems) {
-            contentsWeight += this.getItemWeight(item);
-        }
-
-        return containerWeight + (contentsWeight * weightReduction);
     }
 
     static async onRenderItemSheet(app, html, data) {
-        if (!game.settings.get(this.MODULE_ID, "enableWeightSystem")) return;
+        if (!game.settings.get(MODULE_ID, "enableWeightSystem")) return;
 
         const item = app.item;
-        const weightData = item.getFlag(this.MODULE_ID, "weight") || { value: 0 };
-            const isContainer = item.getFlag(this.MODULE_ID, "isContainer") || false;
-            const containerData = item.getFlag(this.MODULE_ID, "containerData") || {};
-            const containerIcon = containerData.icon || "box-open";
+        if (!item || NON_PHYSICAL_TYPES.has(item.type)) return;
 
-        const currentActiveTab = app._tabs?.[0]?.active || html.find('.sheet-tabs .item.active').data('tab');
-        if (currentActiveTab) {
-            this.itemActiveTabs.set(item.id, currentActiveTab);
+        const editable = app.isEditable;
+        const dis = editable ? "" : " disabled";
+        const weightData = item.getFlag(MODULE_ID, "weight") || { value: 0 };
+        const isContainer = this.isContainer(item);
+        const containerData = this.getContainerData(item);
+        const capacityBonus = num(item.getFlag(MODULE_ID, "capacityBonus")?.value, 0);
+        const upgradeData = item.getFlag(MODULE_ID, "upgradeData") || {};
+
+        const currentActiveTab = app._tabs?.[0]?.active || html.find(".sheet-tabs .item.active").data("tab");
+        if (currentActiveTab) this.itemActiveTabs.set(item.id, currentActiveTab);
+
+        let fields = `
+            <div class="weight-system-fields">
+                <div class="ws-field-row">
+                    <div class="ws-field">
+                        <label><strong>Weight:</strong></label>
+                        <input type="number" class="weight-input" value="${esc(num(weightData.value, 0))}" step="0.1" min="0"${dis}>
+                        <span>units</span>
+                    </div>
+                    <div class="ws-field">
+                        <input type="checkbox" class="container-checkbox"${isContainer ? " checked" : ""}${dis}>
+                        <label>Container</label>
+                    </div>
+                </div>`;
+
+        if (item.type === "cyberware" || item.type === "itemUpgrade") {
+            const label = item.type === "cyberware"
+                ? "Capacity Bonus (when installed):"
+                : "Cargo Capacity Bonus (when mounted on a vehicle):";
+            const hint = item.type === "cyberware" ? "units added to max capacity" : "units added to vehicle cargo capacity";
+            fields += `
+                <div class="ws-field ws-divider">
+                    <label><strong>${label}</strong></label>
+                    <input type="number" class="capacity-bonus-input" value="${esc(capacityBonus)}" step="1" min="0"${dis}>
+                    <span class="ws-hint">${hint}</span>
+                </div>`;
         }
 
-            const containerTypes = [
-                { value: "multi", label: "Multi-Functional (All Types)", reduction: 1.0 },
-            { value: "ammo", label: "Ammo Container", reduction: 0.0 },
-            { value: "armor", label: "Armor Container", reduction: 0.0 },
-            { value: "clothing", label: "Clothing Container", reduction: 0.0 },
-            { value: "cyberdeck", label: "Cyberdeck Container", reduction: 0.0 },
-            { value: "cyberware", label: "Cyberware Container", reduction: 0.0 },
-            { value: "drug", label: "Drug Container", reduction: 0.0 },
-            { value: "gear", label: "Gear Container", reduction: 0.0 },
-            { value: "upgrade", label: "Upgrade Container", reduction: 0.0 },
-            { value: "program", label: "Program Container", reduction: 0.0 },
-            { value: "weapon", label: "Weapon Container", reduction: 0.0 }
-        ];
+        if (item.type === "itemUpgrade") {
+            fields += `
+                <div class="upgrade-settings ws-subpanel">
+                    <div class="ws-subtitle">Upgrade Weight Behavior:</div>
+                    <div class="ws-field">
+                        <input type="checkbox" class="weightless-when-attached"${upgradeData.weightlessWhenAttached ? " checked" : ""}${dis}>
+                        <label>Weightless when attached</label>
+                    </div>
+                    <div class="ws-field">
+                        <label>Additional adjustment to item:</label>
+                        <input type="number" class="additional-weight-input" value="${esc(num(upgradeData.additionalWeight, 0))}" step="0.1"${dis}>
+                    </div>
+                </div>`;
+        }
 
-        const capacityBonusData = item.getFlag(this.MODULE_ID, "capacityBonus") || { value: 0 };
-        const upgradeData = item.getFlag(this.MODULE_ID, "upgradeData") || { weightlessWhenAttached: false, additionalWeight: 0 };
-        const isCyberware = item.type === "cyberware";
-        const isItemUpgrade = item.type === "itemUpgrade";
+        if (isContainer) {
+            const type = containerData.containerType;
+            fields += `
+                <div class="container-settings ws-subpanel">
+                    <div class="ws-field-row">
+                        <div class="ws-field">
+                            <label><strong>Container Type:</strong></label>
+                            <select class="container-type-select"${dis}>
+                                ${Object.entries(CONTAINER_TYPE_LABELS).map(([value, label]) =>
+                                    `<option value="${value}"${type === value ? " selected" : ""}>${value === "multi" ? "Multi-Functional (All Types)" : label}</option>`).join("")}
+                            </select>
+                        </div>
+                    </div>`;
 
-        let weightFieldsHtml =
-            '<div class="weight-system-fields" style="border: 1px solid #ccc; padding: 6px; margin: 6px 0; border-radius: 4px;">' +
-                '<div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">' +
-                    '<div style="display: flex; align-items: center; gap: 5px;">' +
-                        '<label><strong>Weight:</strong></label>' +
-                        '<input type="number" class="weight-input" value="' + (weightData.value || 0) + '" step="0.1" min="0" style="width: 80px; padding: 2px;">' +
-                        '<span>kg</span>' +
-                    '</div>' +
-                    '<div style="display: flex; align-items: center; gap: 5px;">' +
-                        '<input type="checkbox" class="container-checkbox" ' + (isContainer ? 'checked' : '') + '>' +
-                        '<label>Container</label>' +
-                    '</div>' +
-                '</div>' +
-                (isCyberware ? 
-                    '<div style="display: flex; align-items: center; gap: 5px; margin-top: 6px; padding-top: 6px; border-top: 1px dashed #ccc;">' +
-                        '<label><strong>Capacity Bonus (when installed):</strong></label>' +
-                        '<input type="number" class="capacity-bonus-input" value="' + (capacityBonusData.value || 0) + '" step="1" min="0" style="width: 60px; padding: 2px;">' +
-                        '<span style="font-size: 11px; color: #666;">units added to max capacity</span>' +
-                    '</div>'
-                : '') +
-                (isItemUpgrade ?
-                    '<div class="upgrade-settings" style="margin-top: 6px; padding: 6px; border: 1px dashed #999; border-radius: 3px; background: rgba(0,0,0,0.05);">' +
-                        '<div style="font-weight: bold; margin-bottom: 4px;">Upgrade Weight Behavior:</div>' +
-                        '<div style="display: flex; align-items: center; gap: 5px; margin-bottom: 4px;">' +
-                            '<input type="checkbox" class="weightless-when-attached" ' + (upgradeData.weightlessWhenAttached ? 'checked' : '') + '>' +
-                            '<label>Weightless when attached</label>' +
-                            '<span style="font-size: 10px; color: #666;"></span>' +
-                        '</div>' +
-                        '<div style="display: flex; align-items: center; gap: 5px;">' +
-                            '<label>Additional adjustment to item:</label>' +
-                            '<input type="number" class="additional-weight-input" value="' + (upgradeData.additionalWeight || 0) + '" step="0.1" style="width: 60px; padding: 2px;">' +
-                            '<span style="font-size: 10px; color: #666;"></span>' +
-                        '</div>' +
-                    '</div>'
-                : '');
-
-            if (isContainer) {
-                const currentContainerType = containerData.containerType || "multi";
-                const currentTypeData = containerTypes.find(t => t.value === currentContainerType) || containerTypes[0];
-                const iconOptions = [
-                    { value: "fa:box-open" },
-                    { value: "fa:briefcase" },
-                    { value: "fa:backpack" },
-                    { value: "fa:gun" },
-                    { value: "fa:toolbox" },
-                    { value: "fa:first-aid" },
-                    { value: "fa:radiation" },
-                    { value: "fa:gem" },
-                    { value: "fa:circle-stop" },
-                    { value: "fa:sd-card" }
-                ];
-            
-            weightFieldsHtml += 
-                '<div class="container-settings" style="margin-top: 8px; padding: 6px; border: 1px dashed #999; border-radius: 3px; background: rgba(0,0,0,0.05);">' +
-                    '<div style="display: flex; gap: 15px; flex-wrap: wrap; align-items: center; margin-bottom: 6px;">' +
-                        '<div style="display: flex; align-items: center; gap: 5px;">' +
-                            '<label><strong>Container Type:</strong></label>' +
-                            '<select class="container-type-select" style="padding: 2px; font-size: 12px;">' +
-                                containerTypes.map(type => 
-                                    '<option value="' + type.value + '" ' + (currentContainerType === type.value ? 'selected' : '') + '>' + type.label + '</option>'
-                                ).join('') +
-                            '</select>' +
-                        '</div>' +
-                    '</div>';
-            
-            if (currentContainerType === "multi") {
-                weightFieldsHtml += 
-                    '<div class="weight-reduction-row" style="display: flex; gap: 15px; flex-wrap: wrap; align-items: center; margin-bottom: 6px;">' +
-                        '<div style="display: flex; align-items: center; gap: 5px;">' +
-                            '<label><strong>Weight Reduction:</strong></label>' +
-                            '<input type="number" class="weight-reduction-input" value="' + (containerData.weightReduction || 1.0) + '" step="0.1" min="0" max="1" style="width: 60px; padding: 2px;">' +
-                            '<span style="font-size: 10px; color: #666;">(0.0=weightless, 1.0=full weight)</span>' +
-                        '</div>' +
-                    '</div>' +
-                    '<div class="capacity-row" style="display: flex; align-items: center; gap: 5px; margin-bottom: 6px;">' +
-                        '<label><strong>Capacity:</strong></label>' +
-                        '<input type="number" class="capacity-input" value="' + (containerData.capacity || 50) + '" step="1" min="0" style="width: 60px; padding: 2px;">' +
-                        '<span>kg</span>' +
-                    '</div>';
+            if (type === "multi") {
+                fields += `
+                    <div class="ws-field weight-reduction-row">
+                        <label><strong>Weight Reduction:</strong></label>
+                        <input type="number" class="weight-reduction-input" value="${esc(containerData.weightReduction)}" step="0.1" min="0" max="1"${dis}>
+                        <span class="ws-hint">(0.0=weightless, 1.0=full weight)</span>
+                    </div>`;
             } else {
-                weightFieldsHtml += 
-                    '<div class="specialized-info" style="margin-bottom: 6px; padding: 4px; background: rgba(0,255,0,0.1); border-radius: 3px;">' +
-                        '<p style="margin: 0; font-size: 11px; color: #006600; font-weight: bold;">Specialized Container: Items inside are weightless!</p>' +
-                    '</div>' +
-                    '<div class="capacity-row" style="display: flex; align-items: center; gap: 5px; margin-bottom: 6px;">' +
-                        '<label><strong>Capacity:</strong></label>' +
-                        '<input type="number" class="capacity-input" value="' + (containerData.capacity || 50) + '" step="1" min="0" style="width: 60px; padding: 2px;">' +
-                        '<span>kg</span>' +
-                    '</div>';
+                fields += `
+                    <div class="specialized-info">Specialized Container: Items inside are weightless!</div>`;
             }
-            
-            weightFieldsHtml +=
-                    '<div style="border-top: 1px solid #ccc; padding-top: 6px;">' +
-                        '<div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">' +
-                            '<label><strong>Container Icon:</strong></label>' +
-                            '<div class="container-icon-picker" style="display: flex; gap: 4px; flex-wrap: wrap;">' +
-                                iconOptions.map(icon =>
-                                    '<button type="button" class="icon-option" data-icon="' + icon.value + '" style="' +
-                                        'width: 28px; height: 28px; padding: 0; border: 2px solid ' + 
-                                        (containerIcon === icon.value ? 'var(--cpr-color-red, #b90202)' : 'transparent') + '; ' +
-                                        'background: var(--cpr-background-chat-card-block-before, #3b3b3b); ' +
-                                        'color: var(--cpr-color-white, #eaeaea); cursor: pointer; display: flex; ' +
-                                        'align-items: center; justify-content: center; font-size: 14px;">' +
-                                        this.renderContainerIcon(icon.value) +
-                                    '</button>'
-                                ).join('') +
-                            '</div>' +
-                        '</div>' +
-                        '<p style="margin: 0 0 4px 0; font-size: 12px; font-weight: bold;">To use this container:</p>' +
-                        '<p style="margin: 0; font-size: 11px; color: #666;">1. Put this container on a character<br>2. Right-click compatible items → "Put in Container"</p>' +
-                        (currentContainerType !== "multi" ?
-                            '<p style="margin: 4px 0 0 0; font-size: 10px; color: #006600; font-weight: bold;">This container only holds: ' + currentTypeData.label.replace(' Container', '') + ' items</p>'
-                            : '') +
-                    '</div>' +
-                '</div>';
+
+            fields += `
+                    <div class="ws-field capacity-row">
+                        <label><strong>Capacity:</strong></label>
+                        <input type="number" class="capacity-input" value="${esc(containerData.capacity)}" step="1" min="0"${dis}>
+                        <span>units</span>
+                    </div>
+                    <div class="ws-icon-section">
+                        <div class="ws-field">
+                            <label><strong>Container Icon:</strong></label>
+                            <div class="container-icon-picker">
+                                ${CONTAINER_ICON_OPTIONS.map(icon =>
+                                    `<button type="button" class="icon-option${containerData.icon === icon ? " selected" : ""}" data-icon="${icon}"${dis}>${this.renderContainerIcon(icon)}</button>`).join("")}
+                            </div>
+                        </div>
+                        <p class="ws-howto-title">To use this container:</p>
+                        <p class="ws-hint">1. Put this container on a character<br>2. Drag items onto it in the Containers section, or right-click an item → "Put in Container"</p>
+                        ${type !== "multi" ? `<p class="ws-only-holds">This container only holds: ${esc(CONTAINER_TYPE_LABELS[type].replace(" Container", ""))} items</p>` : ""}
+                    </div>
+                </div>`;
         }
-        
-        weightFieldsHtml += '</div>';
+        fields += "</div>";
 
+        html.find(".weight-system-fields").remove();
+        const locations = ['.tab[data-tab="description"]', ".item-properties", ".editor-container", ".sheet-body", ".window-content form", ".window-content", "form"];
         let inserted = false;
-        const possibleLocations = [
-            '.tab[data-tab="description"]',
-            '.item-properties',
-            '.editor-container',
-            '.sheet-body',
-            '.window-content form',
-            '.window-content',
-            'form'
-        ];
-
-        html.find('.weight-system-fields').remove();
-
-        for (const selector of possibleLocations) {
+        for (const selector of locations) {
             const location = html.find(selector).first();
             if (location.length > 0) {
-                location.prepend(weightFieldsHtml);
+                location.prepend(fields);
                 inserted = true;
                 break;
             }
         }
-
         if (!inserted) {
             console.warn("Weight System: Could not find insertion point for item sheet");
             return;
@@ -1833,215 +1519,203 @@ static addInlineWeights(html, actor) {
         const savedTab = this.itemActiveTabs.get(item.id);
         if (savedTab) {
             const tabController = app._tabs?.[0];
-            if (tabController?.activate) {
-                tabController.activate(savedTab);
-            } else {
-                html.find(`.item[data-tab="${savedTab}"] a, a.item[data-tab="${savedTab}"]`).trigger('click');
-            }
+            if (tabController?.activate) tabController.activate(savedTab);
+            else html.find(`.item[data-tab="${savedTab}"] a, a.item[data-tab="${savedTab}"]`).trigger("click");
         }
-
-        const updateFlag = (key, value, options = {}) =>
-            item.update({ [`flags.${this.MODULE_ID}.${key}`]: value }, options);
-
-        html.find('.weight-input').on('change', async (event) => {
-            const newWeight = parseFloat(event.target.value) || 0;
-            try {
-                await updateFlag("weight", { value: newWeight }, { render: false });
-                console.log(`Weight System: Set weight to ${newWeight} for ${item.name}`);
-            } catch (error) {
-                console.error("Weight System: Error setting weight:", error);
-            }
-        });
-
-        html.find('.capacity-bonus-input').on('change', async (event) => {
-            const newBonus = parseFloat(event.target.value) || 0;
-            try {
-                await updateFlag("capacityBonus", { value: newBonus }, { render: false });
-                console.log(`Weight System: Set capacity bonus to ${newBonus} for ${item.name}`);
-            } catch (error) {
-                console.error("Weight System: Error setting capacity bonus:", error);
-            }
-        });
-
-
-        html.find('.sheet-tabs .item').on('click', (event) => {
-            const tab = $(event.currentTarget).data('tab');
+        html.find(".sheet-tabs .item").on("click", (event) => {
+            const tab = $(event.currentTarget).data("tab");
             if (tab) this.itemActiveTabs.set(item.id, tab);
         });
 
-        html.find('.container-checkbox').on('change', async (event) => {
-            const isChecked = event.target.checked;
+        if (!editable) return;
+
+        const setFlag = (key, value, options = { render: false }) =>
+            item.update({ [`flags.${MODULE_ID}.${key}`]: value }, options);
+        const updateContainerData = (patch, options) => {
+            const current = item.getFlag(MODULE_ID, "containerData") || {};
+            return setFlag("containerData", { ...current, ...patch }, options);
+        };
+        const safely = (fn) => async (event) => {
             try {
-                await updateFlag("isContainer", isChecked, { render: false });
-                console.log(`Weight System: Set container to ${isChecked} for ${item.name}`);
-
-                if (isChecked) {
-                    await updateFlag("containerData", {
-                        containerType: "multi",
-                        weightReduction: 1.0,
-                        capacity: 50,
-                        allowedTypes: ['ammo', 'armor', 'clothing', 'cyberdeck', 'cyberware', 'drug', 'gear', 'upgrade', 'program', 'weapon'],
-                        icon: "box-open"
-                    }, { render: false });
-                    
-                    if (html.find('.container-settings').length === 0) {
-                        setTimeout(() => app.render(false), 50);
-                    }
-                } else {
-                    html.find('.container-settings').slideUp(200, function() {
-                        $(this).remove();
-                    });
-                }
+                await fn(event);
             } catch (error) {
-                console.error("Weight System: Error setting container flag:", error);
+                console.error("Weight System: Error saving item settings:", error);
             }
-        });
+        };
 
-        html.find('.container-type-select').on('change', async (event) => {
-            const selectedType = event.target.value;
-            const typeData = containerTypes.find(t => t.value === selectedType);
-            
-            if (typeData) {
-                const currentData = item.getFlag(this.MODULE_ID, "containerData") || {};
-                const newData = {
-                    ...currentData,
-                    containerType: selectedType,
-                    weightReduction: typeData.reduction,
-                    allowedTypes: selectedType === "multi" ?
-                        ['ammo', 'armor', 'clothing', 'cyberdeck', 'cyberware', 'drug', 'gear', 'upgrade', 'program', 'weapon'] :
-                        [selectedType],
-                    icon: currentData.icon || "box-open"
-                };
-                
-                await updateFlag("containerData", newData, { render: false });
-                console.log(`Weight System: Set container type to ${selectedType} for ${item.name}`);
+        html.find(".weight-input").on("change", safely(async (event) => {
+            await setFlag("weight", { value: Math.max(0, num(event.target.value, 0)) });
+        }));
 
-                const settingsDiv = html.find('.container-settings');
-                const weightReductionRow = settingsDiv.find('.weight-reduction-row');
-                const specializedInfo = settingsDiv.find('.specialized-info');
-                
-                if (selectedType === "multi") {
-                    if (weightReductionRow.length) {
-                        weightReductionRow.show();
-                        html.find('.weight-reduction-input').val(newData.weightReduction);
-                    } else {
-                        settingsDiv.find('.capacity-row').before(
-                            '<div class="weight-reduction-row" style="display: flex; gap: 15px; flex-wrap: wrap; align-items: center; margin-bottom: 6px;">' +
-                                '<div style="display: flex; align-items: center; gap: 5px;">' +
-                                    '<label><strong>Weight Reduction:</strong></label>' +
-                                    '<input type="number" class="weight-reduction-input" value="' + (newData.weightReduction || 1.0) + '" step="0.1" min="0" max="1" style="width: 60px; padding: 2px;">' +
-                                    '<span style="font-size: 10px; color: #666;">(0.0=weightless, 1.0=full weight)</span>' +
-                                '</div>' +
-                            '</div>'
-                        );
-                        html.find('.weight-reduction-input').on('change', async (evt) => {
-                            const reduction = Math.max(0, Math.min(1, parseFloat(evt.target.value) || 1.0));
-                            const data = item.getFlag(this.MODULE_ID, "containerData") || {};
-                            await updateFlag("containerData", { ...data, weightReduction: reduction }, { render: false });
-                        });
-                    }
-                    specializedInfo.hide();
-                } else {
-                    weightReductionRow.hide();
-                    if (specializedInfo.length === 0) {
-                        settingsDiv.find('.capacity-row').before(
-                            '<div class="specialized-info" style="margin-bottom: 6px; padding: 4px; background: rgba(0,255,0,0.1); border-radius: 3px;">' +
-                                '<p style="margin: 0; font-size: 11px; color: #006600; font-weight: bold;">Specialized Container: Items inside are weightless!</p>' +
-                            '</div>'
-                        );
-                    } else {
-                        specializedInfo.show();
-                    }
+        html.find(".capacity-bonus-input").on("change", safely(async (event) => {
+            await setFlag("capacityBonus", { value: Math.max(0, num(event.target.value, 0)) });
+        }));
+
+        html.find(".container-checkbox").on("change", safely(async (event) => {
+            if (event.target.checked) {
+                const existing = item.getFlag(MODULE_ID, "containerData");
+                const update = { [`flags.${MODULE_ID}.isContainer`]: true };
+                if (!existing) {
+                    update[`flags.${MODULE_ID}.containerData`] = {
+                        containerType: "multi",
+                        weightReduction: 1,
+                        capacity: 50,
+                        allowedTypes: [...CONTAINER_CATEGORIES],
+                        icon: "fa:box-open"
+                    };
+                }
+                await item.update(update);
+            } else {
+                await setFlag("isContainer", false, {});
+            }
+        }));
+
+        html.find(".container-type-select").on("change", safely(async (event) => {
+            const type = event.target.value;
+            await updateContainerData({
+                containerType: type,
+                weightReduction: type === "multi" ? 1 : 0,
+                allowedTypes: type === "multi" ? [...CONTAINER_CATEGORIES] : [type],
+                icon: this.normalizeIcon(item.getFlag(MODULE_ID, "containerData")?.icon)
+            }, {});
+        }));
+
+        html.find(".weight-reduction-input").on("change", safely(async (event) => {
+            const reduction = Math.min(1, Math.max(0, num(event.target.value, 1)));
+            event.target.value = reduction;
+            await updateContainerData({ weightReduction: reduction });
+        }));
+
+        html.find(".capacity-input").on("change", safely(async (event) => {
+            const capacity = Math.max(0, num(event.target.value, 50));
+            event.target.value = capacity;
+            await updateContainerData({ capacity });
+        }));
+
+        html.find(".icon-option").on("click", safely(async (event) => {
+            event.preventDefault();
+            const icon = this.normalizeIcon(event.currentTarget.dataset.icon);
+            await updateContainerData({ icon });
+            html.find(".icon-option").removeClass("selected");
+            $(event.currentTarget).addClass("selected");
+        }));
+
+        html.find(".weightless-when-attached").on("change", safely(async (event) => {
+            const current = item.getFlag(MODULE_ID, "upgradeData") || {};
+            await setFlag("upgradeData", { ...current, weightlessWhenAttached: event.target.checked });
+        }));
+
+        html.find(".additional-weight-input").on("change", safely(async (event) => {
+            const current = item.getFlag(MODULE_ID, "upgradeData") || {};
+            await setFlag("upgradeData", { ...current, additionalWeight: num(event.target.value, 0) });
+        }));
+    }
+
+    static extractWeightFlags(source) {
+        const flags = foundry.utils.getProperty(source, `flags.${MODULE_ID}`) || {};
+        const weight = num(flags.weight?.value, 0);
+        const result = {};
+        if (weight > 0) result.weight = { value: weight };
+        if (flags.isContainer === true && flags.containerData) {
+            result.isContainer = true;
+            result.containerData = foundry.utils.deepClone(flags.containerData);
+        }
+        if (flags.upgradeData) result.upgradeData = foundry.utils.deepClone(flags.upgradeData);
+        if (num(flags.capacityBonus?.value, 0) > 0) result.capacityBonus = { value: num(flags.capacityBonus.value, 0) };
+        return Object.keys(result).length ? result : null;
+    }
+
+    static async recalculateWeightsFromDirectory(actor) {
+        ui.notifications.info("Syncing weights...");
+        const field = `flags.${MODULE_ID}`;
+
+        const byName = new Map();
+        let compendiumSources = 0;
+        const weightedPacks = game.packs.filter(p => p.metadata.type === "Item" && p.metadata.label.includes("(Weighted)"));
+        for (const pack of weightedPacks) {
+            const index = await pack.getIndex({ fields: [field] });
+            for (const entry of index) {
+                const flags = this.extractWeightFlags(entry);
+                if (flags) {
+                    byName.set(entry.name, { flags, source: "compendium" });
+                    compendiumSources++;
                 }
             }
-        });
-
-        html.find('.weight-reduction-input').on('change', async (event) => {
-            const reduction = Math.max(0, Math.min(1, parseFloat(event.target.value) || 1.0));
-            const currentData = item.getFlag(this.MODULE_ID, "containerData") || {};
-            await updateFlag("containerData", { ...currentData, weightReduction: reduction }, { render: false });
-            console.log(`Weight System: Set weight reduction to ${reduction} for ${item.name}`);
-        });
-
-        html.find('.capacity-input').on('change', async (event) => {
-            const capacity = parseFloat(event.target.value) || 50;
-            const currentData = item.getFlag(this.MODULE_ID, "containerData") || {};
-            await updateFlag("containerData", { ...currentData, capacity: capacity }, { render: false });
-            console.log(`Weight System: Set capacity to ${capacity} for ${item.name}`);
-        });
-
-        html.find('.icon-option').on('click', async function(event) {
-            event.preventDefault();
-            const selectedIcon = $(this).data('icon');
-            const currentData = item.getFlag(WeightSystem.MODULE_ID, "containerData") || {};
-            await updateFlag("containerData", { ...currentData, icon: selectedIcon }, { render: false });
-            console.log(`Weight System: Set container icon to ${selectedIcon} for ${item.name}`);
-            
-            html.find('.icon-option').css('border-color', 'transparent');
-            $(this).css('border-color', 'var(--cpr-color-red, #b90202)');
-        }).on('mouseenter', function() {
-            $(this).css('background', 'var(--cpr-background-chat-card-block, #52606d)');
-        }).on('mouseleave', function() {
-            $(this).css('background', 'var(--cpr-background-chat-card-block-before, #3b3b3b)');
-        });
-
-        html.find('.weightless-when-attached').on('change', async (event) => {
-            const isChecked = event.target.checked;
-            const currentData = item.getFlag(this.MODULE_ID, "upgradeData") || {};
-            await updateFlag("upgradeData", { ...currentData, weightlessWhenAttached: isChecked }, { render: false });
-            console.log(`Weight System: Set weightlessWhenAttached to ${isChecked} for ${item.name}`);
-        });
-
-        html.find('.additional-weight-input').on('change', async (event) => {
-            const additionalWeight = parseFloat(event.target.value) || 0;
-            const currentData = item.getFlag(this.MODULE_ID, "upgradeData") || {};
-            await updateFlag("upgradeData", { ...currentData, additionalWeight: additionalWeight }, { render: false });
-            console.log(`Weight System: Set additionalWeight to ${additionalWeight} for ${item.name}`);
-        });
-    }
-
-    static async onItemChange(document, options, userId) {
-        if (!game.settings.get(this.MODULE_ID, "enableWeightSystem")) return;
-        
-        let actor = null;
-        
-        if (document.documentName === "Item" && document.parent?.documentName === "Actor") {
-            actor = document.parent;
-        } else if (document.documentName === "Actor") {
-            actor = document;
-        } else if (options && options.parent && options.parent.documentName === "Actor") {
-            actor = options.parent;
         }
-        
-        if (!actor || actor.type !== "character") return;
-        
-        const isWeightChange = this.isWeightRelevantChange(document, options);
-        if (isWeightChange) {
-            this.scheduleWeightUpdate(actor);
+        for (const worldItem of game.items) {
+            const flags = this.extractWeightFlags(worldItem);
+            if (flags) byName.set(worldItem.name, { flags, source: "directory" });
         }
-    }
 
-    static isWeightRelevantChange(document, options) {
-        if (document.documentName === "Item") {
-            const flagChanges = foundry.utils.getProperty(options, "flags.mmutons-cyberpunk-red-weight-system");
-            if (flagChanges !== undefined) return true;
-            
-            const amountChange = foundry.utils.getProperty(options, "system.amount");
-            if (amountChange !== undefined) return true;
-            
-            return true;
+        const matches = [];
+        for (const item of actor.items) {
+            const match = byName.get(item.name);
+            if (match) matches.push({ item, ...match });
         }
-        
-        return false;
+        if (matches.length === 0) {
+            ui.notifications.warn("No matching items found in weighted compendiums or Items Directory.");
+            return;
+        }
+
+        const conflicts = matches.filter(({ item, flags }) => {
+            const current = this.getBaseWeight(item);
+            return current > 0 && flags.weight && current !== flags.weight.value;
+        });
+
+        let overwrite = true;
+        if (conflicts.length > 0) {
+            const choice = await new Promise(resolve => {
+                new Dialog({
+                    title: "Sync Weights",
+                    content: `<p>${conflicts.length} item(s) already have a different weight set:</p>
+                        <p class="ws-hint">${conflicts.slice(0, 10).map(c => esc(c.item.name)).join(", ")}${conflicts.length > 10 ? ", ..." : ""}</p>
+                        <p>Overwrite them, or only fill in items without a weight?</p>`,
+                    buttons: {
+                        overwrite: { icon: '<i class="fas fa-rotate"></i>', label: "Overwrite", callback: () => resolve("overwrite") },
+                        fill: { icon: '<i class="fas fa-fill-drip"></i>', label: "Only Missing", callback: () => resolve("fill") },
+                        cancel: { icon: '<i class="fas fa-times"></i>', label: "Cancel", callback: () => resolve(null) }
+                    },
+                    default: "fill",
+                    close: () => resolve(null)
+                }).render(true);
+            });
+            if (!choice) return;
+            overwrite = choice === "overwrite";
+        }
+
+        const updates = [];
+        for (const { item, flags } of matches) {
+            const update = { _id: item.id };
+            const hasWeight = this.getBaseWeight(item) > 0;
+            if (flags.weight && (overwrite || !hasWeight)) update[`flags.${MODULE_ID}.weight`] = flags.weight;
+            if (flags.isContainer && (overwrite || !this.isContainer(item))) {
+                update[`flags.${MODULE_ID}.isContainer`] = true;
+                update[`flags.${MODULE_ID}.containerData`] = flags.containerData;
+            }
+            if (flags.upgradeData && (overwrite || !item.getFlag(MODULE_ID, "upgradeData"))) {
+                update[`flags.${MODULE_ID}.upgradeData`] = flags.upgradeData;
+            }
+            if (flags.capacityBonus && (overwrite || !item.getFlag(MODULE_ID, "capacityBonus"))) {
+                update[`flags.${MODULE_ID}.capacityBonus`] = flags.capacityBonus;
+            }
+            if (Object.keys(update).length > 1) updates.push(update);
+        }
+
+        if (updates.length === 0) {
+            ui.notifications.info("All matching items are already up to date.");
+            return;
+        }
+        await actor.updateEmbeddedDocuments("Item", updates);
+        ui.notifications.info(`Synced ${updates.length} item(s).`);
+        console.log(`Weight System: Sync complete. ${matches.length} matched (${compendiumSources} compendium entries scanned), ${updates.length} updated.`);
     }
 
     static exportWeightedItems() {
-        const items = game.items.filter(i => {
-            const w = i.getFlag(this.MODULE_ID, "weight");
-            return w && w.value > 0;
-        });
         const data = {};
-        items.forEach(i => { data[i.name] = i.getFlag(this.MODULE_ID, "weight").value; });
+        for (const item of game.items) {
+            const weight = this.getBaseWeight(item);
+            if (weight > 0) data[item.name] = weight;
+        }
         console.log("=== WEIGHTED ITEMS EXPORT ===");
         console.log(JSON.stringify(data, null, 2));
         return data;
@@ -2053,12 +1727,12 @@ static addInlineWeights(html, actor) {
             console.error(`Pack "${packName}" not found. Available:`, game.packs.map(p => p.collection));
             return;
         }
-        const items = await pack.getDocuments();
+        const index = await pack.getIndex({ fields: [`flags.${MODULE_ID}.weight`] });
         const data = {};
-        items.forEach(i => {
-            const w = i.getFlag(this.MODULE_ID, "weight");
-            if (w?.value > 0) data[i.name] = w.value;
-        });
+        for (const entry of index) {
+            const weight = num(foundry.utils.getProperty(entry, `flags.${MODULE_ID}.weight.value`), 0);
+            if (weight > 0) data[entry.name] = weight;
+        }
         console.log(`=== EXPORT: ${packName} (${Object.keys(data).length} items) ===`);
         console.log(JSON.stringify(data, null, 2));
         return data;
@@ -2066,7 +1740,7 @@ static addInlineWeights(html, actor) {
 
     static async loadDefaultWeights() {
         try {
-            const resp = await fetch(`modules/mmutons-cyberpunk-red-weight-system/data/default-weights.json`);
+            const resp = await fetch(`modules/${MODULE_ID}/data/default-weights.json`);
             if (!resp.ok) {
                 console.error("Weight System: Failed to fetch default-weights.json, status:", resp.status);
                 return {};
@@ -2078,24 +1752,29 @@ static addInlineWeights(html, actor) {
         }
     }
 
-	static findWeightData(itemName, weights, laxMatching) {
-			if (weights[itemName] !== undefined) {
-				return weights[itemName];
-			}
-			
-			if (laxMatching) {
-				const itemNameLower = itemName.toLowerCase();
-				for (const [key, value] of Object.entries(weights)) {
-					if (itemNameLower.includes(key.toLowerCase())) {
-						console.log(`Weight System: Lax match "${itemName}" ← "${key}"`);
-						return value;
-					}
-				}
-			}
-			
-			return null;
-		}
-		
+    static buildWeightMatcher(weights, laxMatching) {
+        const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const patterns = laxMatching
+            ? Object.keys(weights)
+                .sort((a, b) => b.length - a.length)
+                .map(key => ({ key, re: new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegex(key)}(?![\\p{L}\\p{N}])`, "iu") }))
+            : [];
+        return (itemName) => {
+            if (weights[itemName] !== undefined) return weights[itemName];
+            for (const { key, re } of patterns) {
+                if (re.test(itemName)) {
+                    console.log(`Weight System: Lax match "${itemName}" ← "${key}"`);
+                    return weights[key];
+                }
+            }
+            return null;
+        };
+    }
+
+    static findWeightData(itemName, weights, laxMatching) {
+        return this.buildWeightMatcher(weights, laxMatching)(itemName);
+    }
+
     static async cloneCompendiumWithWeights(sourcePackName, weights, laxMatching = false) {
         const sourcePack = game.packs.get(sourcePackName);
         if (!sourcePack) {
@@ -2111,7 +1790,7 @@ static addInlineWeights(html, actor) {
         if (existing) {
             const confirm = await Dialog.confirm({
                 title: "Overwrite?",
-                content: `<p>"${newLabel}" exists. Delete and recreate?</p>`
+                content: `<p>"${esc(newLabel)}" exists. Delete and recreate?</p>`
             });
             if (!confirm) return;
             await existing.deleteCompendium();
@@ -2121,13 +1800,8 @@ static addInlineWeights(html, actor) {
 
         const folderName = "Weighted Compendiums";
         let folder = game.folders.find(f => f.name === folderName && f.type === "Compendium");
-        
         if (!folder) {
-            folder = await Folder.create({
-                name: folderName,
-                type: "Compendium",
-                color: "#7a4988"
-            });
+            folder = await Folder.create({ name: folderName, type: "Compendium", color: "#7a4988" });
             console.log(`Weight System: Created folder "${folderName}"`);
         }
 
@@ -2137,68 +1811,73 @@ static addInlineWeights(html, actor) {
             type: meta.type,
             system: meta.system
         });
-
         await newPack.configure({ folder: folder.id });
 
         const sourceItems = await sourcePack.getDocuments();
+        const match = this.buildWeightMatcher(weights, laxMatching);
         let weightedCount = 0;
         let containerCount = 0;
         let upgradeCount = 0;
+        let bonusCount = 0;
 
         const itemsToCreate = sourceItems.map(src => {
             const obj = src.toObject();
             delete obj._id;
 
-            const matchedData = this.findWeightData(src.name, weights, laxMatching);
+            const matchedData = match(src.name);
+            if (matchedData === null || matchedData === undefined) return obj;
 
-            if (matchedData !== null) {
-                obj.flags = obj.flags || {};
-                obj.flags[WeightSystem.MODULE_ID] = obj.flags[WeightSystem.MODULE_ID] || {};
-                
-                if (typeof matchedData === 'number') {
-                    obj.flags[WeightSystem.MODULE_ID].weight = { value: matchedData };
-                    weightedCount++;
-                } else if (typeof matchedData === 'object') {
-                    if (matchedData.weight !== undefined) {
-                        obj.flags[WeightSystem.MODULE_ID].weight = { value: matchedData.weight };
-                        weightedCount++;
-                    }
-                    
-                    if (matchedData.container) {
-                        const containerConfig = matchedData.container;
-                        const containerType = containerConfig.type || "multi";
-                        
-                        obj.flags[WeightSystem.MODULE_ID].isContainer = true;
-                        obj.flags[WeightSystem.MODULE_ID].containerData = {
-                            containerType: containerType,
-                            capacity: containerConfig.capacity || 50,
-                            weightReduction: containerType === "multi" ? (containerConfig.reduction ?? 1.0) : 0.0,
-                            allowedTypes: containerType === "multi" 
-                                ? ['ammo', 'armor', 'clothing', 'cyberdeck', 'cyberware', 'drug', 'gear', 'upgrade', 'program', 'weapon']
-                                : [containerType],
-                            icon: containerConfig.icon || "fa:box-open"
-                        };
-                        containerCount++;
-                        console.log(`Weight System: Container "${src.name}" (${containerType}, ${containerConfig.capacity || 50} capacity)`);
-                    }
-                    
-                    if (matchedData.upgrade) {
-                        const upgradeConfig = matchedData.upgrade;
-                        obj.flags[WeightSystem.MODULE_ID].upgradeData = {
-                            weightlessWhenAttached: upgradeConfig.weightlessWhenAttached || false,
-                            additionalWeight: upgradeConfig.additionalWeight || 0
-                        };
-                        upgradeCount++;
-                        console.log(`Weight System: Upgrade "${src.name}" (weightless: ${upgradeConfig.weightlessWhenAttached || false})`);
-                    }
-                }
+            obj.flags = obj.flags || {};
+            const flags = obj.flags[MODULE_ID] = obj.flags[MODULE_ID] || {};
+
+            if (typeof matchedData === "number") {
+                flags.weight = { value: matchedData };
+                weightedCount++;
+                return obj;
+            }
+            if (typeof matchedData !== "object") return obj;
+
+            if (matchedData.weight !== undefined) {
+                flags.weight = { value: num(matchedData.weight, 0) };
+                weightedCount++;
+            }
+
+            if (matchedData.container) {
+                const config = matchedData.container;
+                const containerType = CONTAINER_TYPE_LABELS[config.type] ? config.type : "multi";
+                flags.isContainer = true;
+                flags.containerData = {
+                    containerType,
+                    capacity: Math.max(0, num(config.capacity, 50)),
+                    weightReduction: containerType === "multi" ? Math.min(1, Math.max(0, num(config.reduction, 1))) : 0,
+                    allowedTypes: containerType === "multi" ? [...CONTAINER_CATEGORIES] : [containerType],
+                    icon: this.normalizeIcon(config.icon)
+                };
+                containerCount++;
+                console.log(`Weight System: Container "${src.name}" (${containerType}, ${flags.containerData.capacity} capacity)`);
+            }
+
+            if (matchedData.upgrade) {
+                const config = matchedData.upgrade;
+                flags.upgradeData = {
+                    weightlessWhenAttached: config.weightlessWhenAttached || false,
+                    additionalWeight: num(config.additionalWeight, 0)
+                };
+                upgradeCount++;
+                console.log(`Weight System: Upgrade "${src.name}" (weightless: ${flags.upgradeData.weightlessWhenAttached})`);
+            }
+
+            if (num(matchedData.capacityBonus, 0) > 0) {
+                flags.capacityBonus = { value: num(matchedData.capacityBonus, 0) };
+                bonusCount++;
+                console.log(`Weight System: Capacity bonus "${src.name}" (+${flags.capacityBonus.value})`);
             }
             return obj;
         });
 
         await Item.createDocuments(itemsToCreate, { pack: newPack.collection });
 
-        ui.notifications.info(`Done! ${weightedCount} weighted, ${containerCount} containers, ${upgradeCount} upgrades.`);
+        ui.notifications.info(`Done! ${weightedCount} weighted, ${containerCount} containers, ${upgradeCount} upgrades, ${bonusCount} capacity bonuses.`);
         console.log(`Weight System: Cloned ${sourcePackName} -> ${newPack.collection}`);
     }
 
@@ -2209,54 +1888,38 @@ static addInlineWeights(html, actor) {
             return;
         }
 
-        const options = packs.map(p => `<option value="${p.collection}">${p.metadata.label}</option>`).join('');
+        const options = packs.map(p => `<option value="${esc(p.collection)}">${esc(p.metadata.label)}</option>`).join("");
+        const run = async (html, lax) => {
+            const pack = html.find('[name="pack"]').val();
+            const weights = await WeightSystem.loadDefaultWeights();
+            if (!Object.keys(weights).length) {
+                ui.notifications.error("No weights in default-weights.json!");
+                return;
+            }
+            await WeightSystem.cloneCompendiumWithWeights(pack, weights, lax);
+        };
 
         new Dialog({
             title: "Clone Compendium with Weights",
             content: `
-                <form style="padding: 10px;">
-                    <div style="margin-bottom: 10px;">
+                <form class="ws-cloner-form">
+                    <div class="ws-cloner-row">
                         <label><strong>Select Compendium:</strong></label>
-                        <select name="pack" style="width: 100%; margin-top: 4px;">${options}</select>
+                        <select name="pack">${options}</select>
                     </div>
-                    <p style="font-size: 11px; color: #666;">
+                    <p class="ws-hint">
                         Creates a copy with weights from:<br>
-                        <code>modules/${this.MODULE_ID}/data/default-weights.json</code>
+                        <code>modules/${MODULE_ID}/data/default-weights.json</code>
                     </p>
-                </form>
-            `,
+                </form>`,
             buttons: {
-                lax: {
-                    icon: '<i class="fas fa-copy"></i>',
-                    label: "Lax Clone",
-                    callback: async (html) => {
-                        const pack = html.find('[name="pack"]').val();
-                        const weights = await WeightSystem.loadDefaultWeights();
-                        if (!Object.keys(weights).length) {
-                            ui.notifications.error("No weights in default-weights.json!");
-                            return;
-                        }
-                        await WeightSystem.cloneCompendiumWithWeights(pack, weights, true);
-                    }
-                },
-                strict: {
-                    icon: '<i class="fas fa-copy"></i>',
-                    label: "Strict Clone",
-                    callback: async (html) => {
-                        const pack = html.find('[name="pack"]').val();
-                        const weights = await WeightSystem.loadDefaultWeights();
-                        if (!Object.keys(weights).length) {
-                            ui.notifications.error("No weights in default-weights.json!");
-                            return;
-                        }
-                        await WeightSystem.cloneCompendiumWithWeights(pack, weights, false);
-                    }
-                }
+                lax: { icon: '<i class="fas fa-copy"></i>', label: "Lax Clone", callback: (html) => run(html, true) },
+                strict: { icon: '<i class="fas fa-copy"></i>', label: "Strict Clone", callback: (html) => run(html, false) }
             },
             default: "strict",
             render: (html) => {
-                html.find('button[data-button="lax"]').attr('title', 'Partial matching: "Viper" will also match "Militech Viper"');
-                html.find('button[data-button="strict"]').attr('title', 'Exact matching: Only items with identical names receive weights');
+                html.find('button[data-button="lax"]').attr("data-tooltip", 'Whole-word matching: "Viper" will also match "Militech Viper" (longest match wins)');
+                html.find('button[data-button="strict"]').attr("data-tooltip", "Exact matching: Only items with identical names receive weights");
             }
         }).render(true);
     }
